@@ -25,13 +25,13 @@
 
 | Stream | Tasks | Files owned | Depends on |
 | --- | --- | --- | --- |
-| **A — Foundation** | 1 | `Package.swift`, `.gitignore`, `Resources/Info.plist`, `build.sh` | nothing |
-| **B — Core + network** | 2–8 | `Sources/XFlowCore/*`, `Sources/XFlowChecks/*` (except `Harness.swift`), `Sources/XFlow/Settings.swift`, `Keychain.swift`, `Transcriber.swift` | A |
+| **A — Foundation (Session 0)** | 1, 2 | `Package.swift`, `.gitignore`, `Resources/Info.plist`, `build.sh`, `Sources/XFlowCore/SessionState.swift`, `Sources/XFlowChecks/Harness.swift`, `Sources/XFlow/Settings.swift`, `Sources/XFlow/Keychain.swift` | nothing |
+| **B — Core + network** | 3–8 | rest of `Sources/XFlowCore/*`, rest of `Sources/XFlowChecks/*`, `Sources/XFlow/Transcriber.swift` | A |
 | **C — Capture** | 9–10 | `Sources/XFlow/HotkeyMonitor.swift`, `Recorder.swift` | A |
 | **D — UI** | 11–13 | `Sources/XFlow/OverlayPill.swift`, `MenuBarController.swift`, `PermissionsWindow.swift` | A |
 | **E — Integration** | 14–16 | `Sources/XFlow/Inserter.swift`, `AppDelegate.swift`, `main.swift`, `README.md` | A, B, C, D |
 
-Task 1 runs alone. Then B, C, and D run in three parallel sessions. Then E merges and wires everything together.
+Tasks 1 and 2 run alone in the planning session, on a base branch. They own every file that more than one later stream would otherwise need to touch: the manifest, the shared `RecordingPolicy` that Recorder reads, and the `Settings`/`Keychain` that both the network client and the settings window read. Then B, C, and D run in three parallel worktrees off that base. Then E merges and wires everything together.
 
 **Note for parallel sessions:** streams C and D will not compile on their own until stream E exists, because nothing references them yet — that is expected and fine. Each of their tasks is verified with `swift build`, which type-checks the new file. Only stream E runs the app.
 
@@ -1005,12 +1005,12 @@ git commit -m "feat: clipboard save and restore"
 
 ---
 
-## Task 8: Settings, Keychain, and the network client
+## Task 8: The network client
 
 **Files:**
-- Create: `Sources/XFlow/Settings.swift`
-- Create: `Sources/XFlow/Keychain.swift`
 - Create: `Sources/XFlow/Transcriber.swift`
+
+`Settings.swift` and `Keychain.swift` already exist on the base branch — they are shared with the settings window, which another workstream owns. Read them, do not modify them. Their code is reproduced below for reference.
 
 **Interfaces:**
 - Consumes: `OpenAI`, `XFlowError` (Tasks 4, 6)
@@ -1018,7 +1018,7 @@ git commit -m "feat: clipboard save and restore"
 
 There is no automated test here — it is all I/O against the Keychain and OpenAI. It is verified by `swift build` and by the manual smoke checklist in Task 16.
 
-- [ ] **Step 1: Write the settings store**
+- [ ] **Step 1: Read the settings store (already on base — do not modify)**
 
 `Sources/XFlow/Settings.swift`:
 
@@ -1047,7 +1047,7 @@ enum Settings {
 }
 ```
 
-- [ ] **Step 2: Write the Keychain wrapper**
+- [ ] **Step 2: Read the Keychain wrapper (already on base — do not modify)**
 
 `Sources/XFlow/Keychain.swift`:
 
@@ -1189,8 +1189,8 @@ Expected: build succeeds, all checks still pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/XFlow/Settings.swift Sources/XFlow/Keychain.swift Sources/XFlow/Transcriber.swift
-git commit -m "feat: settings, keychain key storage, and openai network client"
+git add Sources/XFlow/Transcriber.swift
+git commit -m "feat: openai network client"
 ```
 
 ---
@@ -1289,7 +1289,7 @@ git commit -m "feat: fn key press and release monitor"
 
 **Interfaces:**
 - Consumes: `RecordingPolicy` (Task 2)
-- Produces: `Recorder()`, `var onLevel: (Float) -> Void`, `var onAutoStop: () -> Void`, `func start() throws`, `func stop() -> (url: URL, duration: TimeInterval)?`, `static func requestMicrophoneAccess() async -> Bool`, `static var hasMicrophoneAccess: Bool`
+- Produces: `Recorder()`, `var onLevel: (Float) -> Void`, `var onAutoStop: () -> Void`, `func start() throws`, `func stop() -> (url: URL, duration: TimeInterval)?`, `static func requestMicrophoneAccess() async -> Bool`
 
 - [ ] **Step 1: Write the implementation**
 
@@ -1316,10 +1316,6 @@ final class Recorder {
 
     static func requestMicrophoneAccess() async -> Bool {
         await AVCaptureDevice.requestAccess(for: .audio)
-    }
-
-    static var hasMicrophoneAccess: Bool {
-        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
     func start() throws {
@@ -1673,7 +1669,7 @@ git commit -m "feat: menu bar item with recording state and cleanup toggle"
 - Create: `Sources/XFlow/PermissionsWindow.swift`
 
 **Interfaces:**
-- Consumes: `Keychain`, `Settings` (Task 8), `Recorder.hasMicrophoneAccess` (Task 10)
+- Consumes: `Keychain`, `Settings` (Task 8)
 - Produces: `Permissions.microphone`, `Permissions.accessibility`, `Permissions.inputMonitoring` (all `Bool`), `Permissions.allGranted`, `PermissionsWindow()`, `func show()`, `func refresh()`
 
 - [ ] **Step 1: Write the implementation**
@@ -1683,10 +1679,15 @@ git commit -m "feat: menu bar item with recording state and cleanup toggle"
 ```swift
 import AppKit
 import ApplicationServices
+import AVFoundation
 import IOKit.hid
 
 enum Permissions {
-    static var microphone: Bool { Recorder.hasMicrophoneAccess }
+    // Checked directly rather than via Recorder: PermissionsWindow and Recorder
+    // are owned by different workstreams and must not reference each other.
+    static var microphone: Bool {
+        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
 
     /// Required to post the synthetic Cmd-V and to observe keys globally.
     static var accessibility: Bool { AXIsProcessTrusted() }
