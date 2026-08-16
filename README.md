@@ -2,7 +2,7 @@
 
 Hold `fn`, speak, release. The text lands in whatever field your cursor is in.
 
-A ~950-line macOS menu-bar app that replaces the $29/month dictation tools with
+A 1,100-line macOS menu-bar app that replaces the $29/month dictation tools with
 your own OpenAI key, for a few dollars a month. Speech is transcribed by
 `gpt-4o-transcribe`, then cleaned up by `gpt-4o-mini` — which also transliterates
 Hindi/Urdu into Latin script, so spoken Hinglish comes out as "mujhe yeh chahiye"
