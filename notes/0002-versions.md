@@ -10,15 +10,16 @@ and *who* transcribes it, never in the language or UI framework.
 
 ## Measured, end to end
 
-| | V1 | V2 | V3 (current) |
-| --- | --- | --- | --- |
-| Audio sent | once, on release | in segments, while speaking | in segments, while speaking |
-| Transcription | OpenAI `gpt-4o-transcribe` | Groq `whisper-large-v3-turbo` | OpenAI `gpt-4o-mini-transcribe` |
-| Cleanup | OpenAI `gpt-4o-mini` | Groq `gpt-oss-20b` → `llama-3.3-70b` | Groq `llama-3.3-70b-versatile` |
-| 13s dictation | 1.96s | 0.92s | ~1.48s |
-| 126s dictation | **9.56s** | ~1.3s | ~1.5s |
-| Cost per hour | ₹32 | ₹3.5 | ₹16 |
-| Mixed Hindi + English | works | **broken, 0 of 6** | works, 6 of 6 |
+| | V1 | V2 | V3 | V4 (current) |
+| --- | --- | --- | --- | --- |
+| Audio sent | once, on release | in segments, while speaking | in segments, while speaking | in segments, while speaking |
+| Transcription | OpenAI `gpt-4o-transcribe` | Groq `whisper-large-v3-turbo` | OpenAI `gpt-4o-mini-transcribe` | Groq `whisper-large-v3-turbo` |
+| Cleanup | OpenAI `gpt-4o-mini` | Groq `gpt-oss-20b` → `llama-3.3-70b` | Groq `llama-3.3-70b-versatile` | Groq `llama-3.3-70b-versatile` |
+| 13s dictation | 1.96s | 0.92s | ~1.48s | ~0.9s |
+| 126s dictation | **9.56s** | ~1.3s | ~1.5s | ~1.3s |
+| Cost per hour | ₹32 | ₹3.5 | ₹16 | ₹3.5 |
+| API keys needed | 1 | 1 | 2 | **1** |
+| Mixed Hindi + English | works | **broken, 0 of 6** | works, 6 of 6 | **broken, 0 of 6** |
 
 ## V1 — one call after you stop
 
@@ -70,6 +71,36 @@ measurably does best.
 
 Costs ~₹12/hour more than V2 and adds ~0.5s to the perceived wait, in exchange
 for the one thing the app exists to do.
+
+## V4 — back to Groq, on purpose
+
+V3's whole reason for existing was that OpenAI's model keeps Hindi and English
+both intact and Groq's does not. V4 gives that up deliberately.
+
+Two things changed the arithmetic. The history store built in phase 2A made the
+real workload countable for the first time: **19 of 20 stored dictations were
+English**, one was romanized Hinglish. And the app moved from something one
+person ran to something shared as a public repo, where a two-key setup is a real
+barrier and the bill is the user's own.
+
+Paying 4.5x per hour on every dictation to protect one in twenty stopped being
+worth it. Re-measured on the shipped path before switching:
+
+| Recording | Groq `whisper-large-v3-turbo` | Runs |
+| --- | --- | --- |
+| English | flawless, byte-identical across runs | 3 of 3 |
+| Mixed | Hindi translated to English | 6 of 6 |
+| Pure Hindi | translated to English | 3 of 3 |
+
+The failure is deterministic rather than intermittent, and the output is fluent
+English — which is exactly why it went unnoticed in V2 and needs saying out loud
+here.
+
+`gpt-4o-mini-transcribe` remains one setting away. Nothing about the routing,
+the segmentation, or the cleanup changed.
+
+**The point is not that Groq is better.** It is that the right model depends on
+who is speaking, and until 2A there was no data to answer that with.
 
 ## Lessons that outlived their versions
 

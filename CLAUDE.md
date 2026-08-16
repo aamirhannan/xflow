@@ -76,9 +76,14 @@ These are enforced by checks. Do not "simplify" them away.
 - **Never send `language` on a transcription request.** With `language=en`
   Whisper translated and summarised instead of transcribing. With `language=hi`
   it wrote the speaker's English in Devanagari.
-- **Never put the vocabulary prompt on a transcription request.** Those English
-  terms bias language detection: mixed Hindi/English speech survived 3 of 6 runs
-  with it, 6 of 6 without. Vocabulary belongs on the cleanup call.
+- **Never put the vocabulary prompt on a transcription request.** Two separate
+  harms, and the second is provider-independent. It biases language detection:
+  mixed speech survived 3 of 6 runs with it, 6 of 6 without. Worse, the `prompt`
+  field is not a vocabulary list to the API — it is *previous context*, so on a
+  near-silent clip the model returned the whole list as the transcript and it was
+  pasted into the user's document. Segments close at pauses, so quiet tails are
+  routine. The notes say this parameter helps Groq's accuracy; it is still
+  forbidden. Vocabulary belongs on the cleanup call.
 - **A fresh `URLSession` per dictation.** Pooled HTTP/3 connections die silently
   when the NAT drops the UDP mapping, and requests hang until timeout.
 - **Timeouts are never retried.** Retrying one turned a 30s stall into 62s.

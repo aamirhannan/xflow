@@ -2,13 +2,25 @@
 
 Hold `fn`, speak, release. The text lands in whatever field your cursor is in.
 
-A ~1,500-line macOS menu-bar app that replaces the $29/month dictation tools with
-your own Groq key, for a few rupees an hour. Speech is transcribed by
+A macOS menu-bar app that replaces the $29/month dictation tools with your own
+Groq key, for about ₹3.5 an hour. Speech is transcribed by
 `whisper-large-v3-turbo`, then formatted by `llama-3.3-70b-versatile` — which also
 transliterates Hindi/Urdu into Latin script, so spoken Hinglish comes out as
 "mujhe yeh chahiye" rather than Devanagari.
 
-No dashboard, no analytics, no history. Just the loop.
+The wait after you release `fn` is roughly constant no matter how long you spoke,
+because everything except the last few seconds was already transcribed while you
+were still talking.
+
+Dictations are stored locally in `~/Library/Application Support/XFlow/`, and the
+app has a window showing them with search and a few totals. Nothing leaves your
+Mac except the audio going to Groq. There is no account and no sync.
+
+**On languages:** single-language speech is excellent. Mixing Hindi and English
+*inside one sentence* is not — Groq's Whisper translates the Hindi away, measured
+6 of 6 runs. If you code-switch, set the transcription model to
+`gpt-4o-mini-transcribe`, which keeps both at about 4.5x the cost. See
+[notes/0002](notes/0002-versions.md).
 
 ## Requirements
 
@@ -61,7 +73,8 @@ notarization, which this project does not do.
 
 ## Setup
 
-The setup window opens on first launch. Four things:
+A wizard opens on first launch and walks through these one at a time. Each
+permission screen advances by itself once you grant it.
 
 | Item | Why |
 | --- | --- |
@@ -70,19 +83,24 @@ The setup window opens on first launch. Four things:
 | **Input Monitoring** | To see the `fn` key while other apps are focused |
 | **Keyboard → "Press 🌐 key to" → Do Nothing** | Otherwise `fn` also opens the emoji picker |
 
+That last one is manual and there is no API for it. It is the step people miss.
+
 Then paste your Groq key (`gsk_…`) from
 [console.groq.com/keys](https://console.groq.com/keys). It is stored in your
-macOS Keychain and never written to disk or to this repository.
+macOS Keychain and never written to disk or to this repository. **This is the
+only key you need** — Groq runs both the transcription and the formatting. An
+OpenAI key is optional and only used if you switch to the multilingual model.
 
-The same window has a **Vocabulary** field, pre-filled with a default set of
-terms. Edit it to match your own jargon — names, acronyms, product words. It is
-the highest-leverage accuracy knob in the app; see
+Accessibility and Input Monitoring sometimes do not take effect until the app
+restarts, so the last screen offers a relaunch. Take it if `fn` does nothing.
+
+Everything is reachable afterwards from **Settings** in the window, including
+**Run setup again…** if you need to redo a step.
+
+The **Vocabulary** field is pre-filled with a default set of terms. Edit it to
+match your own jargon — names, acronyms, product words. It is the
+highest-leverage accuracy knob in the app; see
 [Why these exact settings](#why-these-exact-settings).
-
-If you used v1 with an OpenAI key, nothing needs cleaning up by hand. Groq keys
-live under their own Keychain account, so the old key is ignored rather than
-sent to the wrong host, and the stale `sttModel`/`cleanupModel` defaults are
-cleared once on first launch.
 
 ## Use
 

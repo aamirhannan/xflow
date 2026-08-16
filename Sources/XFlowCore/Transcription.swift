@@ -2,30 +2,39 @@ import Foundation
 
 /// Speech-to-text request construction.
 ///
-/// The provider is split from cleanup on purpose: transcription runs on OpenAI,
-/// formatting runs on Groq. That is not tidiness, it is measurement.
+/// Both legs now run on Groq: transcription here, formatting in `Groq`. That
+/// means one API key for the whole app rather than two.
 ///
-/// Tested on three recordings — pure Hindi, pure English, and code-switched:
+/// This is a **deliberate trade, not an upgrade**. Tested on three recordings —
+/// pure Hindi, pure English, and code-switched:
 ///
-///   groq whisper-large-v3-turbo   translated the Hindi away entirely on mixed
-///                                 speech, and read pure Hindi as Urdu
+///   groq whisper-large-v3-turbo   correct on single-language speech. On mixed
+///                                 speech it translated the Hindi away entirely,
+///                                 0 of 6 runs preserved. Read pure Hindi as Urdu
 ///   groq whisper-large-v3         dropped most of the content
 ///   gpt-4o-transcribe             dropped most of the content
-///   gpt-4o-mini-transcribe        correct on all three
+///   gpt-4o-mini-transcribe        correct on all three, 6 of 6 on mixed
 ///
 /// Whisper picks a single language for a whole clip, so code-switched speech
 /// loses whichever language does not win: English dominant means the Hindi gets
 /// translated, Hindi dominant means the English gets written in Devanagari.
-/// gpt-4o-mini-transcribe keeps both, which is the entire point of this app.
+/// `gpt-4o-mini-transcribe` keeps both and is the only model measured to do so.
+///
+/// It was the default through V3 for exactly that reason. It is not the default
+/// now because this app's own history says 19 of 20 real dictations are English,
+/// and keeping it cost 4.5x per hour — ₹16 against ₹3.5 — to protect the
+/// twentieth. Switch `Settings.sttModel` back to `gpt-4o-mini-transcribe` if you
+/// dictate in more than one language; `endpoint(for:)` routes it to OpenAI and
+/// the second key becomes required again.
 public enum Transcription {
     public static let openAIURL =
         URL(string: "https://api.openai.com/v1/audio/transcriptions")!
-    /// Kept so the Groq models remain one setting away: ~9x cheaper and ~2x
-    /// faster, correct on single-language speech, wrong on mixed.
     public static let groqURL =
         URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!
 
-    public static let defaultModel = "gpt-4o-mini-transcribe"
+    /// ~9x cheaper and ~2x faster than the OpenAI model, correct on
+    /// single-language speech, wrong on mixed. See the note above.
+    public static let defaultModel = "whisper-large-v3-turbo"
 
     /// Models that must be sent to Groq rather than OpenAI.
     public static func endpoint(for model: String) -> URL {
