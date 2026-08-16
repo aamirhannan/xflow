@@ -21,8 +21,12 @@ func checkXFlowError() {
     Checks.equal(XFlowError.noAPIKey.isRetryable, false, "missing key is not retryable")
     Checks.equal(XFlowError.emptyTranscript.isRetryable, false, "empty transcript is not retryable")
 
+    // A timeout must stay distinct from "no network" — collapsing them is what
+    // made the 60-second hang undiagnosable in the first place.
+    Checks.check(XFlowError.timedOut != XFlowError.network, "timeout is not the same error as no network")
+
     let all: [XFlowError] = [
-        .noAPIKey, .invalidKey, .rateLimited, .server("x"), .emptyTranscript, .decoding, .network,
+        .noAPIKey, .invalidKey, .rateLimited, .server("x"), .emptyTranscript, .decoding, .network, .timedOut,
     ]
     for error in all {
         Checks.check(!error.userMessage.isEmpty, "\(error) has a user message")

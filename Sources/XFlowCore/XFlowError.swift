@@ -8,6 +8,10 @@ public enum XFlowError: Error, Equatable, Sendable {
     case emptyTranscript
     case decoding
     case network
+    /// Distinct from `.network` on purpose: a timeout means the request was
+    /// accepted and then went quiet, which is a different failure from having no
+    /// route at all — and collapsing the two makes the bug undiagnosable.
+    case timedOut
 
     /// Maps an HTTP response to an error, or nil when the response succeeded.
     public static func from(status: Int, body: Data) -> XFlowError? {
@@ -29,7 +33,7 @@ public enum XFlowError: Error, Equatable, Sendable {
 
     public var isRetryable: Bool {
         switch self {
-        case .rateLimited, .network, .server: return true
+        case .rateLimited, .network, .server, .timedOut: return true
         case .noAPIKey, .invalidKey, .emptyTranscript, .decoding: return false
         }
     }
@@ -44,6 +48,7 @@ public enum XFlowError: Error, Equatable, Sendable {
         case .emptyTranscript: return "Nothing heard"
         case .decoding:        return "Unexpected API response"
         case .network:         return "No network"
+        case .timedOut:        return "Timed out"
         }
     }
 }
