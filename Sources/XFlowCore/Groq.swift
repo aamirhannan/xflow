@@ -16,8 +16,14 @@ public enum Groq {
     /// gpt-4o-transcribe on accuracy, at 15x the speed of the latter.
     /// whisper-large-v3 also returned HTTP 500 repeatedly on a 983KB file.
     public static let defaultSTTModel = "whisper-large-v3-turbo"
-    /// 1000 tokens/sec, which turns a 4.11s cleanup into roughly 0.4s.
-    public static let defaultCleanupModel = "openai/gpt-oss-20b"
+    /// NOT a reasoning model, on purpose. `openai/gpt-oss-20b` reasons before
+    /// answering and, on real transcripts, burned its entire completion budget
+    /// on reasoning and returned empty content with finish_reason=length —
+    /// still HTTP 200. Raising max_completion_tokens to 8000 did not help.
+    /// `llama-3.1-8b-instant` answered but appended meta-commentary about what
+    /// it had done and translated English phrases into Hinglish. 70b returned
+    /// exactly the input word count, verbatim English, in the same 0.73s.
+    public static let defaultCleanupModel = "llama-3.3-70b-versatile"
 
     public static func transcriptionRequest(
         apiKey: String,
@@ -89,6 +95,14 @@ public enum Groq {
         guard let response = try? JSONDecoder().decode(Response.self, from: data),
               let content = response.choices.first?.message.content
         else { throw XFlowError.decoding }
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An empty completion is a FAILURE, never a valid formatting result.
+        // A reasoning model can return 200 with empty content after spending its
+        // budget thinking; treating that as success made whole segments vanish
+        // from the assembled transcript, because empty pieces are filtered out.
+        // Throwing here makes the caller fall back to the raw transcript.
+        guard !text.isEmpty else { throw XFlowError.decoding }
+        return text
     }
 }

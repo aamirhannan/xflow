@@ -4,7 +4,7 @@ Hold `fn`, speak, release. The text lands in whatever field your cursor is in.
 
 A ~1,500-line macOS menu-bar app that replaces the $29/month dictation tools with
 your own Groq key, for a few rupees an hour. Speech is transcribed by
-`whisper-large-v3-turbo`, then formatted by `openai/gpt-oss-20b` — which also
+`whisper-large-v3-turbo`, then formatted by `llama-3.3-70b-versatile` — which also
 transliterates Hindi/Urdu into Latin script, so spoken Hinglish comes out as
 "mujhe yeh chahiye" rather than Devanagari.
 
@@ -100,7 +100,7 @@ path.
 
 ## Cost
 
-`whisper-large-v3-turbo` is $0.04/hour of audio and `openai/gpt-oss-20b` costs
+`whisper-large-v3-turbo` is $0.04/hour of audio and `llama-3.3-70b-versatile` costs
 fractions of a cent per dictation — roughly ₹4/hour, and plausibly ₹0 inside
 Groq's free tier of 2,000 requests/day. Groq bills a 10-second minimum per
 request, which is why segments are never shorter than that.

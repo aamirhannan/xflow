@@ -16,7 +16,7 @@ func checkGroq() {
     Checks.equal(request.value(forHTTPHeaderField: "Authorization"), "Bearer gsk-test",
                  "transcription carries the bearer token")
     Checks.equal(Groq.defaultSTTModel, "whisper-large-v3-turbo", "stt model is turbo")
-    Checks.equal(Groq.defaultCleanupModel, "openai/gpt-oss-20b", "cleanup model is gpt-oss-20b")
+    Checks.equal(Groq.defaultCleanupModel, "llama-3.3-70b-versatile", "cleanup model is llama 70b")
 
     let body = String(data: request.httpBody!, encoding: .isoLatin1)!
     Checks.check(request.httpBody!.range(of: audio) != nil, "body carries the audio bytes")
@@ -44,7 +44,7 @@ func checkGroq() {
                  "cleanup targets the groq chat endpoint")
 
     let json = try! JSONSerialization.jsonObject(with: cleanup.httpBody!) as! [String: Any]
-    Checks.equal(json["model"] as? String, "openai/gpt-oss-20b", "cleanup names the model")
+    Checks.equal(json["model"] as? String, "llama-3.3-70b-versatile", "cleanup names the model")
     Checks.equal(json["temperature"] as? Double, 0, "cleanup runs at temperature zero")
     let messages = json["messages"] as! [[String: String]]
     Checks.equal(messages.count, 2, "cleanup sends exactly two messages")
@@ -63,6 +63,16 @@ func checkGroq() {
                  "Mujhe yeh chahiye.", "cleanup response is decoded and trimmed")
     Checks.throwsError(XFlowError.decoding, "cleanup with no choices is a decoding error") {
         _ = try Groq.decodeCleanup(Data(#"{"choices":[]}"#.utf8))
+    }
+
+    // A reasoning model can return 200 with empty content after exhausting its
+    // budget on reasoning. Treating that as a valid result made whole segments
+    // disappear from the transcript, since empty pieces are filtered on assembly.
+    Checks.throwsError(XFlowError.decoding, "empty cleanup content is a failure, not a result") {
+        _ = try Groq.decodeCleanup(Data(#"{"choices":[{"message":{"content":""}}]}"#.utf8))
+    }
+    Checks.throwsError(XFlowError.decoding, "whitespace-only cleanup content is a failure") {
+        _ = try Groq.decodeCleanup(Data(#"{"choices":[{"message":{"content":"  \n "}}]}"#.utf8))
     }
 }
 
