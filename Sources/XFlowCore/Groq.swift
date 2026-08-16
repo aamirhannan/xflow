@@ -62,7 +62,8 @@ public enum Groq {
             "temperature": 0,
             "messages": [
                 ["role": "system", "content": CleanupPrompt.system],
-                ["role": "user", "content": transcript],
+                // Delimited, so the model can tell speech from instructions.
+                ["role": "user", "content": CleanupPrompt.wrap(transcript)],
             ],
         ]
 

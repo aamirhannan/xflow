@@ -49,7 +49,8 @@ func checkGroq() {
     let messages = json["messages"] as! [[String: String]]
     Checks.equal(messages.count, 2, "cleanup sends exactly two messages")
     Checks.equal(messages[0]["content"], CleanupPrompt.system, "system message is the cleanup prompt")
-    Checks.equal(messages[1]["content"], "hello there", "user message is the transcript")
+    Checks.equal(messages[1]["content"], CleanupPrompt.wrap("hello there"),
+                 "user message is the transcript, wrapped in the delimiter")
 
     Checks.equal(try? Groq.decodeTranscript(Data(#"{"text":"  mujhe yeh chahiye  "}"#.utf8)),
                  "mujhe yeh chahiye", "transcript is decoded and trimmed")
