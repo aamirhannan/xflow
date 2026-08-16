@@ -22,5 +22,7 @@ checkClipboardSwap()
 checkSilenceDetector()
 checkSegmentPolicy()
 checkTranscriptAssembler()
+checkHistoryLog()
+checkHistoryStore()
 
 Checks.report()

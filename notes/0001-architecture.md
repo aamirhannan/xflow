@@ -44,7 +44,8 @@ fn up
        ├─ transcribe + clean the tail
        ├─ await any stragglers
        ├─ assemble by index (never by completion order)
-       └─ clipboard swap → synthetic ⌘V → restore clipboard
+       ├─ clipboard swap → synthetic ⌘V → restore clipboard
+       └─ append one line to history.jsonl
 ```
 
 The constant wait comes from that structure: everything except the tail was
@@ -101,12 +102,41 @@ words.
 | ⌘V blocked | Text left on clipboard plus a notification |
 | Segmentation misbehaving | Menu toggle reverts to single-shot |
 
+## History
+
+Every dictation that produced text appends one JSON object to
+`~/Library/Application Support/XFlow/history.jsonl`, directory `0700`, file
+`0600`. Nothing leaves the machine: no account, no sync, no server.
+
+A record holds the timestamp, the speech duration, and **both** transcripts —
+what the model heard and what cleanup produced. Both, because cleanup is
+verified mechanically and can still be wrong, so the raw side is the only record
+of what was actually said. Audio is not kept: it would cost ~1MB per minute and
+turn the file into a real privacy liability. Word count is derived on read rather
+than stored, so fixing the definition later reaches old records too.
+
+Roughly 18MB after a year of heavy use, which is why the format is deliberately
+dumb. `all()` reads the whole file and filters in memory; SQLite would buy
+indexed queries that 36,000 rows do not need.
+
+**History is never allowed to break dictation.** Every store operation is
+non-throwing — a full disk or a wrong permission is a log line and nothing more —
+and the write happens *after* the paste, so nothing it does can delay the text
+arriving. Corruption is bounded by the append-only format: only the final line
+can be torn, and the decoder skips any line it cannot parse, so the worst case
+is losing one dictation rather than the file.
+
+Two controls live in the menu bar until 2B moves them into the dashboard:
+**Save history** pauses new writes without hiding what is already stored, and
+**Delete all history…** removes the file behind a confirmation.
+
 ## Deliberate shortcuts
 
 Marked with `ponytail:` comments naming the ceiling and the upgrade path. Live
 ones: clipboard restore is plain-text only; the noise floor is an exponential
 tracker rather than a real VAD; ICU romanization is a floor, not the default
-path; one lock guards all audio-tap state.
+path; one lock guards all audio-tap state; history has no in-memory cache and
+re-reads the whole file on every query.
 
 Two have already come due and been upgraded: `AVAudioRecorder` → `AVAudioEngine`
 when segmentation arrived, and the single shared `URLSession` → one per

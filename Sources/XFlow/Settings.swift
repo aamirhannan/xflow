@@ -43,4 +43,11 @@ enum Settings {
         get { defaults.object(forKey: "segmentingEnabled") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "segmentingEnabled") }
     }
+
+    /// Off means new dictations are not written to history. Reading and deleting
+    /// still work, so pausing never hides or strands what is already stored.
+    static var historyEnabled: Bool {
+        get { defaults.object(forKey: "historyEnabled") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "historyEnabled") }
+    }
 }

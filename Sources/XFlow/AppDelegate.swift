@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let permissionsWindow = PermissionsWindow()
     private let transcriber = Transcriber()
     private let segmentingRecorder = SegmentingRecorder()
+    private let history = HistoryStore()
 
     private var state: SessionState = .idle
     private var assembler = TranscriptAssembler()
@@ -28,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         preventAppNap()
         installEditMenu()
         menuBar.onOpenSettings = { [weak self] in self?.permissionsWindow.show() }
+        menuBar.onDeleteAllHistory = { [weak self] in self?.history.deleteAll() }
 
         hotkey.onDown = { [weak self] in self?.handle(.hotkeyDown) }
         hotkey.onUp = { [weak self] in self?.handle(.hotkeyUp) }
@@ -153,8 +155,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             defer { try? FileManager.default.removeItem(at: url) }
             do {
-                let text = try await transcriber.transcribe(fileURL: url)
-                await MainActor.run { self.assembler.store(text, at: index) }
+                let transcript = try await transcriber.transcribe(fileURL: url)
+                await MainActor.run { self.assembler.store(transcript, at: index) }
             } catch {
                 log.error("segment \(index, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 await MainActor.run { self.assembler.markFailed(at: index) }
@@ -194,17 +196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer { try? FileManager.default.removeItem(at: clip.url) }
 
             do {
-                let text = try await transcriber.transcribe(fileURL: clip.url)
-                await MainActor.run { self.handle(.transcriptReady) }
-
-                let pasted = await Inserter.insert(text)
-                await MainActor.run {
-                    self.pill.hide()
-                    self.handle(.inserted)
-                    if !pasted {
-                        self.notify("Copied to clipboard — press ⌘V to paste (Accessibility is off)")
-                    }
-                }
+                let transcript = try await transcriber.transcribe(fileURL: clip.url)
+                await self.complete(transcript, duration: clip.duration)
             } catch let error as XFlowError {
                 await MainActor.run {
                     self.fail(error.userMessage)
@@ -248,8 +241,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // longer grows with how long the user spoke.
             if let tail = result.tail {
                 do {
-                    let text = try await transcriber.transcribe(fileURL: tail)
-                    await MainActor.run { self.assembler.store(text, at: result.tailIndex) }
+                    let transcript = try await transcriber.transcribe(fileURL: tail)
+                    await MainActor.run { self.assembler.store(transcript, at: result.tailIndex) }
                 } catch {
                     await MainActor.run { self.assembler.markFailed(at: result.tailIndex) }
                 }
@@ -267,28 +260,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let recovered = await self.wholeAudioFallback() { text = recovered }
             }
 
-            guard !text.isEmpty else {
+            guard !text.cleaned.isEmpty else {
                 await MainActor.run { self.fail("Nothing heard") }
                 return
             }
 
             // The only latency number that matters: fn release to text on screen.
             log.notice("PERCEIVED WAIT \(String(format: "%.2f", Date().timeIntervalSince(releasedAt)), privacy: .public)s")
-            await MainActor.run { self.handle(.transcriptReady) }
-            let pasted = await Inserter.insert(text)
-            await MainActor.run {
-                self.pill.hide()
-                self.handle(.inserted)
-                if !pasted {
-                    self.notify("Copied to clipboard — press ⌘V to paste (Accessibility is off)")
-                }
+            await self.complete(text, duration: result.duration)
+        }
+    }
+
+    /// The single place a dictation ends. Both the single-shot and the segmented
+    /// path route through here, so history cannot miss one and a future third
+    /// path gets recording for free.
+    ///
+    /// Recording is last on purpose: the paste has already happened by the time
+    /// it runs, so nothing the store does can delay or break the text arriving.
+    ///
+    /// Only reached when there is text. A sub-0.4s hotkey tap, a "Nothing heard"
+    /// result and a network failure all return before this, so history holds no
+    /// empty rows.
+    private func complete(_ transcript: Transcript, duration: TimeInterval) async {
+        await MainActor.run { self.handle(.transcriptReady) }
+
+        let pasted = await Inserter.insert(transcript.cleaned)
+        await MainActor.run {
+            self.pill.hide()
+            self.handle(.inserted)
+            if !pasted {
+                self.notify("Copied to clipboard — press ⌘V to paste (Accessibility is off)")
             }
         }
+
+        guard Settings.historyEnabled else { return }
+        history.record(
+            DictationRecord(
+                durationSeconds: duration,
+                rawText: transcript.raw,
+                cleanedText: transcript.cleaned
+            )
+        )
     }
 
     /// Last resort when a segment could not be transcribed: send the entire
     /// recording as one request. Slower, but no words are lost.
-    private func wholeAudioFallback() async -> String? {
+    private func wholeAudioFallback() async -> Transcript? {
         guard let url = segmentingRecorder.rebuildFullAudio() else { return nil }
         defer { try? FileManager.default.removeItem(at: url) }
         return try? await transcriber.transcribe(fileURL: url)
