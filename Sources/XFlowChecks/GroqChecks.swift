@@ -113,3 +113,35 @@ func checkScript() {
     Checks.equal(messages[2]["content"], "मुझे यह चाहिए.", "the retry shows the model its own output")
     Checks.equal(messages[3]["content"], Groq.retryInstruction, "the correction is the last turn")
 }
+
+func checkTranslationDetection() {
+    // Measured separation on real sentences: transliteration 0.653-0.889,
+    // translation 0.061-0.476. The threshold sits in the empty band.
+    Checks.check(Script.translationThreshold > 0.476 && Script.translationThreshold < 0.653,
+                 "the threshold sits between the measured translation and transliteration bands")
+
+    // Transliteration must pass.
+    Checks.equal(Script.looksTranslated(original: "मुझे यह चाहिए", output: "Mujhe yeh chahiye."),
+                 false, "romanized output is not flagged as translated")
+    Checks.equal(Script.looksTranslated(original: "तुम कहाँ जा रहे हो", output: "Tum kahan ja rahe ho?"),
+                 false, "another romanized sentence is not flagged")
+
+    // Translation must be caught — the failure the script check alone missed,
+    // because translated text is perfectly clean Latin.
+    Checks.equal(Script.looksTranslated(original: "मुझे यह चाहिए", output: "I want this."),
+                 true, "translation to english is caught")
+    Checks.equal(Script.looksTranslated(original: "आप क्या कर रहे हैं", output: "What are you doing?"),
+                 true, "another translation is caught")
+    Checks.equal(Script.looksTranslated(original: "हमें इसको ठीक करना है", output: "We need to fix this."),
+                 true, "a third translation is caught")
+
+    // English in, English out is not a translation.
+    Checks.equal(Script.looksTranslated(original: "hello there", output: "Hello there."),
+                 false, "pure english is never flagged as translated")
+
+    // The deterministic floor: always Latin, never empty.
+    let floorText = Script.romanize("यहाँ पे तो भई, मुझे consistency चाहिए")
+    Checks.equal(Script.containsNonLatin(floorText), false,
+                 "icu romanization leaves no script behind")
+    Checks.check(floorText.contains("mujhe"), "icu romanization keeps the speaker's words")
+}

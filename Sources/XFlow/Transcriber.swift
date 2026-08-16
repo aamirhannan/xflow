@@ -99,13 +99,21 @@ struct Transcriber {
                 decode: Groq.decodeCleanup
             )
 
-            // The prompt asks for transliteration; this checks that it happened.
-            // Segments are cleaned by independent calls, so without this one
-            // segment could come back romanized and the next left in Devanagari
-            // — the same dictation, two different scripts.
-            guard Script.containsNonLatin(cleaned) else { return cleaned }
+            // Verify mechanically rather than trusting the prompt. Segments are
+            // cleaned by independent calls, so one can come back romanized and
+            // the next left in Devanagari or translated outright — the same
+            // dictation, three different behaviours. Two failure modes:
+            //   - script survived: output still has Devanagari or Arabic
+            //   - translated: output no longer resembles the speaker's words
+            func isWrong(_ text: String) -> String? {
+                if Script.containsNonLatin(text) { return "script survived" }
+                if Script.looksTranslated(original: transcript, output: text) { return "translated" }
+                return nil
+            }
 
-            log.notice("cleanup left non-latin script, retrying once")
+            guard let problem = isWrong(cleaned) else { return cleaned }
+
+            log.notice("cleanup \(problem, privacy: .public), retrying once")
             let retried = try await send(
                 Groq.cleanupRetryRequest(
                     apiKey: apiKey,
@@ -116,8 +124,15 @@ struct Transcriber {
                 on: session,
                 decode: Groq.decodeCleanup
             )
-            // If it still refuses, the cleaned text beats losing the words.
-            return Script.containsNonLatin(retried) ? cleaned : retried
+            if isWrong(retried) == nil { return retried }
+
+            // Both attempts were wrong. ICU transliteration is less natural than
+            // the model at its best, but it is deterministic: it can never
+            // translate and can never leave script behind. Consistency beats
+            // prettiness when the alternative is a transcript that is half
+            // romanized and half Devanagari.
+            log.notice("cleanup unreliable twice, falling back to deterministic transliteration")
+            return Script.romanize(transcript)
         } catch {
             return transcript
         }
