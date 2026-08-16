@@ -4,5 +4,6 @@
 checkSessionState()
 checkMultipartBody()
 checkXFlowError()
+checkCleanupPrompt()
 
 Checks.report()
