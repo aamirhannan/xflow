@@ -5,5 +5,6 @@ checkSessionState()
 checkMultipartBody()
 checkXFlowError()
 checkCleanupPrompt()
+checkOpenAI()
 
 Checks.report()
