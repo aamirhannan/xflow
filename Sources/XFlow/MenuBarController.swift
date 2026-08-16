@@ -5,12 +5,18 @@ final class MenuBarController: NSObject {
 
     private let item: NSStatusItem
     private let cleanupMenuItem: NSMenuItem
+    private let segmentingMenuItem: NSMenuItem
 
     override init() {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         cleanupMenuItem = NSMenuItem(
             title: "Clean up transcripts",
             action: #selector(toggleCleanup),
+            keyEquivalent: ""
+        )
+        segmentingMenuItem = NSMenuItem(
+            title: "Transcribe while speaking",
+            action: #selector(toggleSegmenting),
             keyEquivalent: ""
         )
         super.init()
@@ -24,6 +30,10 @@ final class MenuBarController: NSObject {
         cleanupMenuItem.target = self
         cleanupMenuItem.state = Settings.cleanupEnabled ? .on : .off
         menu.addItem(cleanupMenuItem)
+
+        segmentingMenuItem.target = self
+        segmentingMenuItem.state = Settings.segmentingEnabled ? .on : .off
+        menu.addItem(segmentingMenuItem)
 
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
@@ -47,6 +57,11 @@ final class MenuBarController: NSObject {
     @objc private func toggleCleanup() {
         Settings.cleanupEnabled.toggle()
         cleanupMenuItem.state = Settings.cleanupEnabled ? .on : .off
+    }
+
+    @objc private func toggleSegmenting() {
+        Settings.segmentingEnabled.toggle()
+        segmentingMenuItem.state = Settings.segmentingEnabled ? .on : .off
     }
 
     @objc private func openSettings() {
