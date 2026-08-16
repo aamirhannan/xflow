@@ -6,6 +6,12 @@ import XFlowCore
 /// to live only in the menu bar and the destructive history control.
 struct SettingsView: View {
     let store: HistoryStore
+    let onRerunSetup: () -> Void
+
+    init(store: HistoryStore, onRerunSetup: @escaping () -> Void = {}) {
+        self.store = store
+        self.onRerunSetup = onRerunSetup
+    }
 
     @State private var openAIKey = Keychain.openAIKey ?? ""
     @State private var groqKey = Keychain.groqKey ?? ""
@@ -53,6 +59,8 @@ struct SettingsView: View {
             }
             Text("Without that last step, fn also opens the emoji picker.")
                 .font(.caption).foregroundStyle(.secondary)
+
+            Button("Run setup again…") { onRerunSetup() }
         }
     }
 

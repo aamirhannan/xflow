@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Settings.migrateFromV1()
+        Settings.migrateOnboardingFlag()
         preventAppNap()
         installEditMenu()
         menuBar.onOpenSettings = { [weak self] in self?.mainWindow.showSettings() }
@@ -48,8 +49,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task {
             _ = await Recorder.requestMicrophoneAccess()
-            if !Permissions.allGranted || Keychain.openAIKey == nil || Keychain.groqKey == nil {
-                await MainActor.run { self.mainWindow.showSettings() }
+            await MainActor.run {
+                // A first-run user gets the wizard; someone already set up who has
+                // lost a permission or a key gets taken straight to the checklist.
+                if !Settings.hasCompletedOnboarding {
+                    self.mainWindow.showOnboarding()
+                } else if !Permissions.allGranted
+                    || Keychain.openAIKey == nil || Keychain.groqKey == nil {
+                    self.mainWindow.showSettings()
+                }
             }
         }
     }

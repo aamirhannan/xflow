@@ -12,6 +12,7 @@ enum Page: String, CaseIterable, Identifiable {
 /// SwiftUI, which needs to react when it does.
 final class WindowModel: ObservableObject {
     @Published var page: Page = .home
+    @Published var showingOnboarding = false
     let store: HistoryStore
 
     init(store: HistoryStore) { self.store = store }
@@ -21,20 +22,29 @@ struct RootView: View {
     @ObservedObject var model: WindowModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $model.page) {
-                ForEach(Page.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 220)
-            .padding(12)
+        if model.showingOnboarding {
+            OnboardingView(onFinish: { model.showingOnboarding = false })
+        } else {
+            VStack(spacing: 0) {
+                Picker("", selection: $model.page) {
+                    ForEach(Page.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 220)
+                .padding(12)
 
-            Divider()
+                Divider()
 
-            switch model.page {
-            case .home:     HomeView(store: model.store)
-            case .settings: SettingsView(store: model.store)
+                switch model.page {
+                case .home:
+                    HomeView(store: model.store)
+                case .settings:
+                    SettingsView(
+                        store: model.store,
+                        onRerunSetup: { model.showingOnboarding = true }
+                    )
+                }
             }
         }
     }
@@ -72,4 +82,9 @@ final class MainWindow: NSObject {
     }
 
     func showSettings() { show(.settings) }
+
+    func showOnboarding() {
+        model.showingOnboarding = true
+        show(.home)
+    }
 }
