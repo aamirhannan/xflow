@@ -74,14 +74,15 @@ struct Transcriber {
         log.notice("clip read: inMemory=\(audio.count, privacy: .public)B onDisk=\(onDisk ?? -1, privacy: .public)B")
 
         let transcript = try await send(
-            OpenAI.transcriptionRequest(
+            Groq.transcriptionRequest(
                 apiKey: apiKey,
                 model: Settings.sttModel,
                 audio: audio,
-                filename: fileURL.lastPathComponent
+                filename: fileURL.lastPathComponent,
+                vocabulary: Settings.vocabulary
             ),
             on: session,
-            decode: OpenAI.decodeTranscript
+            decode: Groq.decodeTranscript
         )
 
         guard Settings.cleanupEnabled else { return transcript }
@@ -89,13 +90,13 @@ struct Transcriber {
         // A failed cleanup must not lose the transcript. Devanagari beats nothing.
         do {
             return try await send(
-                OpenAI.cleanupRequest(
+                Groq.cleanupRequest(
                     apiKey: apiKey,
                     model: Settings.cleanupModel,
                     transcript: transcript
                 ),
                 on: session,
-                decode: OpenAI.decodeCleanup
+                decode: Groq.decodeCleanup
             )
         } catch {
             return transcript

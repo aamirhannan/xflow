@@ -1,20 +1,45 @@
 import Foundation
 
 /// Request construction and response decoding only. No URLSession here, so all
-/// of it is testable without a network or a mock server.
-public enum OpenAI {
-    static let transcriptionURL = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
-    static let chatURL = URL(string: "https://api.openai.com/v1/chat/completions")!
+/// of it is checkable without a network or a mock server.
+///
+/// Groq's endpoints are OpenAI-compatible in shape, which is why the request
+/// bodies look familiar. `openai/gpt-oss-20b` is a Groq-hosted model whose ID
+/// carries an `openai/` prefix — it is not a call to OpenAI.
+public enum Groq {
+    public static let transcriptionURL =
+        URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!
+    public static let chatURL =
+        URL(string: "https://api.groq.com/openai/v1/chat/completions")!
+
+    /// Benchmarked on real Hinglish speech: turbo beat both whisper-large-v3 and
+    /// gpt-4o-transcribe on accuracy, at 15x the speed of the latter.
+    /// whisper-large-v3 also returned HTTP 500 repeatedly on a 983KB file.
+    public static let defaultSTTModel = "whisper-large-v3-turbo"
+    /// 1000 tokens/sec, which turns a 4.11s cleanup into roughly 0.4s.
+    public static let defaultCleanupModel = "openai/gpt-oss-20b"
 
     public static func transcriptionRequest(
         apiKey: String,
         model: String,
         audio: Data,
         filename: String,
+        vocabulary: String,
         boundary: String = "xflow-\(UUID().uuidString)"
     ) -> URLRequest {
         var body = MultipartBody(boundary: boundary)
         body.addField(name: "model", value: model)
+
+        // The vocabulary prompt is what makes Groq win: without it "risk owner"
+        // came back as "response और" and SOX as "शॉक्स". Sent only when it has
+        // content — an empty prompt field is worse than no prompt field.
+        let terms = vocabulary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !terms.isEmpty { body.addField(name: "prompt", value: terms) }
+
+        // NO `language` FIELD. EVER. With language=en, Whisper stopped
+        // transcribing and started translating and summarising, destroying most
+        // of the content. Auto-detection is the only correct setting here.
+
         body.addFile(name: "file", filename: filename, contentType: "audio/m4a", data: audio)
 
         var request = URLRequest(url: transcriptionURL)

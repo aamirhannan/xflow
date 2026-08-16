@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activityToken: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Settings.migrateFromV1()
         preventAppNap()
         installEditMenu()
         menuBar.onOpenSettings = { [weak self] in self?.permissionsWindow.show() }
