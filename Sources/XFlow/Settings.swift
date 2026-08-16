@@ -15,6 +15,15 @@ enum Settings {
         defaults.set(true, forKey: "didMigrateToSplitProviders")
     }
 
+    /// Existing installs already went through setup by hand, so the flag starts
+    /// true for them. Without this, anyone upgrading would be shown a first-run
+    /// wizard for an app they have been using for weeks.
+    static func migrateOnboardingFlag() {
+        guard defaults.object(forKey: "hasCompletedOnboarding") == nil else { return }
+        let alreadyConfigured = Keychain.openAIKey != nil && Keychain.groqKey != nil
+        defaults.set(alreadyConfigured, forKey: "hasCompletedOnboarding")
+    }
+
     static var sttModel: String {
         get { defaults.string(forKey: "sttModel") ?? Transcription.defaultModel }
         set { defaults.set(newValue, forKey: "sttModel") }
@@ -49,5 +58,12 @@ enum Settings {
     static var historyEnabled: Bool {
         get { defaults.object(forKey: "historyEnabled") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "historyEnabled") }
+    }
+
+    /// False until the first-run wizard has been finished once. The wizard can be
+    /// reopened from Settings, so a mistaken "Finish" is recoverable.
+    static var hasCompletedOnboarding: Bool {
+        get { defaults.bool(forKey: "hasCompletedOnboarding") }
+        set { defaults.set(newValue, forKey: "hasCompletedOnboarding") }
     }
 }

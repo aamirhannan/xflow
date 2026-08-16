@@ -2,7 +2,7 @@ import AppKit
 
 final class MenuBarController: NSObject {
     var onOpenSettings: () -> Void = {}
-    var onDeleteAllHistory: () -> Void = {}
+    var onOpenWindow: () -> Void = {}
 
     private let item: NSStatusItem
     private let cleanupMenuItem: NSMenuItem
@@ -46,13 +46,9 @@ final class MenuBarController: NSObject {
         historyMenuItem.state = Settings.historyEnabled ? .on : .off
         menu.addItem(historyMenuItem)
 
-        let deleteHistory = NSMenuItem(
-            title: "Delete all history…",
-            action: #selector(deleteAllHistory),
-            keyEquivalent: ""
-        )
-        deleteHistory.target = self
-        menu.addItem(deleteHistory)
+        let openWindow = NSMenuItem(title: "Open XFlow", action: #selector(openWindow), keyEquivalent: "0")
+        openWindow.target = self
+        menu.addItem(openWindow)
 
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
@@ -88,19 +84,8 @@ final class MenuBarController: NSObject {
         historyMenuItem.state = Settings.historyEnabled ? .on : .off
     }
 
-    @objc private func deleteAllHistory() {
-        let alert = NSAlert()
-        alert.messageText = "Delete all dictation history?"
-        alert.informativeText =
-            "Every transcript stored on this Mac will be removed. This cannot be undone."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-
-        // An accessory app is not frontmost when its menu is used, and an alert
-        // from a background app can open behind whatever the user is looking at.
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        onDeleteAllHistory()
+    @objc private func openWindow() {
+        onOpenWindow()
     }
 
     @objc private func openSettings() {

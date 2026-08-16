@@ -11,10 +11,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let recorder = Recorder()
     private let pill = OverlayPill()
     private let menuBar = MenuBarController()
-    private let permissionsWindow = PermissionsWindow()
     private let transcriber = Transcriber()
     private let segmentingRecorder = SegmentingRecorder()
     private let history = HistoryStore()
+    private lazy var mainWindow = MainWindow(store: history)
 
     private var state: SessionState = .idle
     private var assembler = TranscriptAssembler()
@@ -26,10 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Settings.migrateFromV1()
+        Settings.migrateOnboardingFlag()
         preventAppNap()
         installEditMenu()
-        menuBar.onOpenSettings = { [weak self] in self?.permissionsWindow.show() }
-        menuBar.onDeleteAllHistory = { [weak self] in self?.history.deleteAll() }
+        menuBar.onOpenSettings = { [weak self] in self?.mainWindow.showSettings() }
+        menuBar.onOpenWindow = { [weak self] in self?.mainWindow.show() }
 
         hotkey.onDown = { [weak self] in self?.handle(.hotkeyDown) }
         hotkey.onUp = { [weak self] in self?.handle(.hotkeyUp) }
@@ -48,8 +49,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task {
             _ = await Recorder.requestMicrophoneAccess()
-            if !Permissions.allGranted || Keychain.openAIKey == nil || Keychain.groqKey == nil {
-                await MainActor.run { self.permissionsWindow.show() }
+            await MainActor.run {
+                // A first-run user gets the wizard; someone already set up who has
+                // lost a permission or a key gets taken straight to the checklist.
+                if !Settings.hasCompletedOnboarding {
+                    self.mainWindow.showOnboarding()
+                } else if !Permissions.allGranted
+                    || Keychain.openAIKey == nil || Keychain.groqKey == nil {
+                    self.mainWindow.showSettings()
+                }
             }
         }
     }
@@ -202,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run {
                     self.fail(error.userMessage)
                     if error == .noAPIKey || error == .invalidKey {
-                        self.permissionsWindow.show()
+                        self.mainWindow.showSettings()
                     }
                 }
             } catch {
