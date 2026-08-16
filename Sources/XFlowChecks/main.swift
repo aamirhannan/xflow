@@ -2,5 +2,6 @@
 // top-level `check<Thing>()` function. Add the call here as each group lands.
 
 checkSessionState()
+checkMultipartBody()
 
 Checks.report()
