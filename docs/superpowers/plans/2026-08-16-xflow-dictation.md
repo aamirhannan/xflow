@@ -6,7 +6,7 @@
 
 **Architecture:** A SwiftPM package with two targets — `XFlowCore` (pure, testable logic: state machine, multipart encoding, OpenAI request/response handling, clipboard swap) and `XFlow` (an AppKit executable: hotkey monitor, recorder, network, overlay UI, paste). A `build.sh` script assembles the executable into a signed `XFlow.app` bundle. No Xcode project file and no third-party dependencies, which is what makes the workstreams below file-disjoint.
 
-**Tech Stack:** Swift 6 (language mode 5), SwiftPM, AppKit, AVFoundation, Swift Testing, OpenAI HTTP APIs.
+**Tech Stack:** Swift 6 (language mode 5), SwiftPM, AppKit, AVFoundation, OpenAI HTTP APIs. No test framework: this machine has Command Line Tools only, where neither XCTest nor swift-testing exists, so checks are an assert-based executable run with `swift run XFlowChecks`.
 
 ## Global Constraints
 
@@ -19,13 +19,14 @@
 - **Minimum deployment target macOS 14.**
 - **Every file under `Sources/XFlow/` belongs to exactly one workstream.** SwiftPM discovers sources by directory, so `Package.swift` is written once in Task 1 and never modified again. Do not edit it in any later task.
 - **Deliberate simplifications carry a `ponytail:` comment** naming the ceiling and the upgrade path.
+- **There is no `swift test`.** This machine has Command Line Tools only, where neither `XCTest` nor `Testing` exists. Checks live in the `XFlowChecks` executable and run with `swift run XFlowChecks`. Each check group is one file exposing a top-level `check<Thing>()` function, and its call must be added to `Sources/XFlowChecks/main.swift` above `Checks.report()`. Check files `import XFlowCore` (not `@testable import`), so anything they exercise must be `public`.
 
 ## Workstreams (for parallel execution)
 
 | Stream | Tasks | Files owned | Depends on |
 | --- | --- | --- | --- |
 | **A — Foundation** | 1 | `Package.swift`, `.gitignore`, `Resources/Info.plist`, `build.sh` | nothing |
-| **B — Core + network** | 2–8 | `Sources/XFlowCore/*`, `Tests/XFlowCoreTests/*`, `Sources/XFlow/Settings.swift`, `Keychain.swift`, `Transcriber.swift` | A |
+| **B — Core + network** | 2–8 | `Sources/XFlowCore/*`, `Sources/XFlowChecks/*` (except `Harness.swift`), `Sources/XFlow/Settings.swift`, `Keychain.swift`, `Transcriber.swift` | A |
 | **C — Capture** | 9–10 | `Sources/XFlow/HotkeyMonitor.swift`, `Recorder.swift` | A |
 | **D — UI** | 11–13 | `Sources/XFlow/OverlayPill.swift`, `MenuBarController.swift`, `PermissionsWindow.swift` | A |
 | **E — Integration** | 14–16 | `Sources/XFlow/Inserter.swift`, `AppDelegate.swift`, `main.swift`, `README.md` | A, B, C, D |
@@ -45,11 +46,12 @@ Task 1 runs alone. Then B, C, and D run in three parallel sessions. Then E merge
 - Create: `build.sh`
 - Create: `Sources/XFlowCore/Placeholder.swift`
 - Create: `Sources/XFlow/main.swift`
-- Create: `Tests/XFlowCoreTests/PlaceholderTests.swift`
+- Create: `Sources/XFlowChecks/Harness.swift`
+- Create: `Sources/XFlowChecks/main.swift`
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: a buildable package with targets `XFlowCore` (library), `XFlow` (executable), `XFlowCoreTests` (tests); a `build.sh` producing `build/XFlow.app`
+- Produces: a buildable package with targets `XFlowCore` (library), `XFlow` (executable), `XFlowChecks` (assert-based checks executable); a `build.sh` producing `build/XFlow.app`
 
 - [ ] **Step 1: Create the package manifest**
 
@@ -74,8 +76,8 @@ let package = Package(
             dependencies: ["XFlowCore"],
             swiftSettings: swiftSettings
         ),
-        .testTarget(
-            name: "XFlowCoreTests",
+        .executableTarget(
+            name: "XFlowChecks",
             dependencies: ["XFlowCore"],
             swiftSettings: swiftSettings
         ),
@@ -184,21 +186,66 @@ app.setActivationPolicy(.accessory)
 app.run()
 ```
 
-`Tests/XFlowCoreTests/PlaceholderTests.swift`:
+`Sources/XFlowChecks/Harness.swift` — the whole test layer. `Checks.check` collects failures rather than trapping on the first, so one run reports everything that broke:
 
 ```swift
-import Testing
-@testable import XFlowCore
+import Foundation
 
-@Test func packageCompiles() {
-    #expect(Bool(true))
+enum Checks {
+    private(set) static var failures: [String] = []
+    private(set) static var passed = 0
+
+    static func check(_ condition: Bool, _ message: String,
+                      file: StaticString = #fileID, line: UInt = #line) {
+        if condition { passed += 1 }
+        else { failures.append("\(file):\(line) — \(message)") }
+    }
+
+    static func equal<T: Equatable>(_ actual: T, _ expected: T, _ message: String,
+                                    file: StaticString = #fileID, line: UInt = #line) {
+        check(actual == expected,
+              "\(message)\n    expected: \(expected)\n    actual:   \(actual)",
+              file: file, line: line)
+    }
+
+    static func throwsError<E: Error & Equatable>(_ expected: E, _ message: String,
+                                                  file: StaticString = #fileID, line: UInt = #line,
+                                                  _ body: () throws -> Void) {
+        do {
+            try body()
+            check(false, "\(message) — nothing was thrown", file: file, line: line)
+        } catch let error as E where error == expected {
+            passed += 1
+        } catch {
+            check(false, "\(message) — threw \(error), expected \(expected)", file: file, line: line)
+        }
+    }
+
+    static func report() -> Never {
+        if failures.isEmpty {
+            print("✅ \(passed) checks passed")
+            exit(0)
+        }
+        print("❌ \(failures.count) failed, \(passed) passed\n")
+        failures.forEach { print("  \($0)") }
+        exit(1)
+    }
 }
 ```
 
-- [ ] **Step 6: Verify the package builds and tests run**
+`Sources/XFlowChecks/main.swift` — the runner. Each later task adds one call here:
 
-Run: `swift build && swift test`
-Expected: build succeeds, 1 test passes.
+```swift
+// Each check group lives in its own file in this directory and exposes a
+// top-level `check<Thing>()` function. Add the call here as each group lands.
+
+Checks.report()
+```
+
+- [ ] **Step 6: Verify the package builds and the checks run**
+
+Run: `swift build && swift run XFlowChecks`
+Expected: build succeeds, prints `✅ 0 checks passed`.
 
 - [ ] **Step 7: Verify the app bundle is produced**
 
@@ -208,7 +255,7 @@ Expected: `MacOS/` and `Info.plist` present. A warning about the missing signing
 - [ ] **Step 8: Commit**
 
 ```bash
-git add Package.swift .gitignore Resources/Info.plist build.sh Sources Tests
+git add Package.swift .gitignore Resources/Info.plist build.sh Sources
 git commit -m "chore: swiftpm package skeleton and app bundle build script"
 ```
 
@@ -219,71 +266,71 @@ git commit -m "chore: swiftpm package skeleton and app bundle build script"
 **Files:**
 - Create: `Sources/XFlowCore/SessionState.swift`
 - Delete: `Sources/XFlowCore/Placeholder.swift`
-- Create: `Tests/XFlowCoreTests/SessionStateTests.swift`
-- Delete: `Tests/XFlowCoreTests/PlaceholderTests.swift`
+- Create: `Sources/XFlowChecks/SessionStateChecks.swift`
+
 
 **Interfaces:**
 - Consumes: nothing
 - Produces: `SessionState` (enum: `.idle`, `.recording(startedAt: Date)`, `.transcribing`, `.inserting`), `SessionEvent` (enum: `.hotkeyDown`, `.hotkeyUp`, `.transcriptReady`, `.inserted`, `.failed`), `SessionState.next(on:now:) -> SessionState`, `RecordingPolicy.minimumDuration`, `RecordingPolicy.maximumDuration`, `RecordingPolicy.shouldTranscribe(duration:) -> Bool`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing checks**
 
-`Tests/XFlowCoreTests/SessionStateTests.swift`:
+`Sources/XFlowChecks/SessionStateChecks.swift`:
 
 ```swift
 import Foundation
-import Testing
-@testable import XFlowCore
+import XFlowCore
 
-private let t0 = Date(timeIntervalSince1970: 1_000_000)
+func checkSessionState() {
+    let t0 = Date(timeIntervalSince1970: 1_000_000)
 
-@Test func hotkeyDownStartsRecording() {
-    #expect(SessionState.idle.next(on: .hotkeyDown, now: t0) == .recording(startedAt: t0))
-}
+    Checks.equal(SessionState.idle.next(on: .hotkeyDown, now: t0),
+                 .recording(startedAt: t0),
+                 "hotkey down starts recording")
 
-@Test func hotkeyUpMovesToTranscribing() {
-    let recording = SessionState.recording(startedAt: t0)
-    #expect(recording.next(on: .hotkeyUp, now: t0) == .transcribing)
-}
+    Checks.equal(SessionState.recording(startedAt: t0).next(on: .hotkeyUp, now: t0),
+                 .transcribing,
+                 "hotkey up moves to transcribing")
 
-@Test func transcriptReadyMovesToInserting() {
-    #expect(SessionState.transcribing.next(on: .transcriptReady, now: t0) == .inserting)
-}
+    Checks.equal(SessionState.transcribing.next(on: .transcriptReady, now: t0),
+                 .inserting,
+                 "transcript ready moves to inserting")
 
-@Test func insertedReturnsToIdle() {
-    #expect(SessionState.inserting.next(on: .inserted, now: t0) == .idle)
-}
+    Checks.equal(SessionState.inserting.next(on: .inserted, now: t0),
+                 .idle,
+                 "inserted returns to idle")
 
-@Test func failureFromAnyStateReturnsToIdle() {
-    let states: [SessionState] = [.idle, .recording(startedAt: t0), .transcribing, .inserting]
-    for state in states {
-        #expect(state.next(on: .failed, now: t0) == .idle)
+    for state in [SessionState.idle, .recording(startedAt: t0), .transcribing, .inserting] {
+        Checks.equal(state.next(on: .failed, now: t0), .idle,
+                     "failure from \(state) returns to idle")
     }
-}
 
-@Test func strayEventsAreIgnored() {
     // A second hotkeyDown while already recording must not restart the clock.
     let recording = SessionState.recording(startedAt: t0)
-    #expect(recording.next(on: .hotkeyDown, now: t0.addingTimeInterval(5)) == recording)
+    Checks.equal(recording.next(on: .hotkeyDown, now: t0.addingTimeInterval(5)), recording,
+                 "duplicate hotkey down is ignored")
     // A hotkeyUp with no recording in progress must do nothing.
-    #expect(SessionState.idle.next(on: .hotkeyUp, now: t0) == .idle)
-}
+    Checks.equal(SessionState.idle.next(on: .hotkeyUp, now: t0), .idle,
+                 "stray hotkey up is ignored")
 
-@Test func clipsShorterThanMinimumAreNotTranscribed() {
-    #expect(RecordingPolicy.shouldTranscribe(duration: 0.39) == false)
-    #expect(RecordingPolicy.shouldTranscribe(duration: 0.4) == true)
-    #expect(RecordingPolicy.shouldTranscribe(duration: 3.0) == true)
-}
+    Checks.equal(RecordingPolicy.shouldTranscribe(duration: 0.39), false, "0.39s is too short")
+    Checks.equal(RecordingPolicy.shouldTranscribe(duration: 0.4), true, "0.4s is long enough")
+    Checks.equal(RecordingPolicy.shouldTranscribe(duration: 3.0), true, "3s is long enough")
 
-@Test func policyLimitsMatchTheSpec() {
-    #expect(RecordingPolicy.minimumDuration == 0.4)
-    #expect(RecordingPolicy.maximumDuration == 120)
+    Checks.equal(RecordingPolicy.minimumDuration, 0.4, "minimum duration matches the spec")
+    Checks.equal(RecordingPolicy.maximumDuration, 120, "maximum duration matches the spec")
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+Then add the call to `Sources/XFlowChecks/main.swift`, above `Checks.report()`:
 
-Run: `swift test`
+```swift
+checkSessionState()
+```
+
+- [ ] **Step 2: Run the checks to verify they fail**
+
+Run: `swift run XFlowChecks`
 Expected: FAIL — `cannot find 'SessionState' in scope`.
 
 - [ ] **Step 3: Write the implementation**
@@ -337,21 +384,21 @@ public enum RecordingPolicy {
 }
 ```
 
-- [ ] **Step 4: Delete the placeholders**
+- [ ] **Step 4: Delete the placeholder**
 
 ```bash
-rm Sources/XFlowCore/Placeholder.swift Tests/XFlowCoreTests/PlaceholderTests.swift
+rm Sources/XFlowCore/Placeholder.swift
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 5: Run the checks to verify they pass**
 
-Run: `swift test`
-Expected: PASS, 7 tests.
+Run: `swift run XFlowChecks`
+Expected: `✅ 15 checks passed`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A Sources/XFlowCore Tests/XFlowCoreTests
+git add -A Sources/XFlowCore Sources/XFlowChecks
 git commit -m "feat: session state machine and recording duration policy"
 ```
 
@@ -361,68 +408,59 @@ git commit -m "feat: session state machine and recording duration policy"
 
 **Files:**
 - Create: `Sources/XFlowCore/MultipartBody.swift`
-- Create: `Tests/XFlowCoreTests/MultipartBodyTests.swift`
+- Create: `Sources/XFlowChecks/MultipartBodyChecks.swift`
 
 **Interfaces:**
 - Consumes: nothing
 - Produces: `MultipartBody(boundary: String)`, `mutating func addField(name:value:)`, `mutating func addFile(name:filename:contentType:data:)`, `var finished: Data`, `var contentType: String`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing checks**
 
-`Tests/XFlowCoreTests/MultipartBodyTests.swift`:
+`Sources/XFlowChecks/MultipartBodyChecks.swift`:
 
 ```swift
 import Foundation
-import Testing
-@testable import XFlowCore
+import Foundation
+import XFlowCore
 
-@Test func contentTypeIncludesBoundary() {
-    let body = MultipartBody(boundary: "ABC123")
-    #expect(body.contentType == "multipart/form-data; boundary=ABC123")
-}
+func checkMultipartBody() {
+    Checks.equal(MultipartBody(boundary: "ABC123").contentType,
+                 "multipart/form-data; boundary=ABC123",
+                 "content type includes the boundary")
 
-@Test func fieldsAreEncodedWithCRLF() {
-    var body = MultipartBody(boundary: "B")
-    body.addField(name: "model", value: "gpt-4o-transcribe")
+    var fieldBody = MultipartBody(boundary: "B")
+    fieldBody.addField(name: "model", value: "gpt-4o-transcribe")
+    Checks.equal(String(data: fieldBody.finished, encoding: .utf8),
+                 "--B\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-4o-transcribe\r\n--B--\r\n",
+                 "fields are encoded with CRLF")
 
-    let expected = "--B\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-4o-transcribe\r\n--B--\r\n"
-    #expect(String(data: body.finished, encoding: .utf8) == expected)
-}
+    var fileBody = MultipartBody(boundary: "B")
+    fileBody.addFile(name: "file", filename: "clip.m4a", contentType: "audio/m4a", data: Data([0x01, 0x02]))
+    let text = String(data: fileBody.finished, encoding: .isoLatin1)!
+    Checks.check(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"clip.m4a\""),
+                 "file part carries the filename")
+    Checks.check(text.contains("Content-Type: audio/m4a"), "file part carries the content type")
+    Checks.check(text.hasSuffix("\r\n--B--\r\n"), "body ends with the closing boundary")
 
-@Test func filePartCarriesFilenameAndContentType() {
-    var body = MultipartBody(boundary: "B")
-    body.addFile(name: "file", filename: "clip.m4a", contentType: "audio/m4a", data: Data([0x01, 0x02]))
-
-    let text = String(data: body.finished, encoding: .isoLatin1)!
-    #expect(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"clip.m4a\""))
-    #expect(text.contains("Content-Type: audio/m4a"))
-    #expect(text.hasSuffix("\r\n--B--\r\n"))
-}
-
-@Test func binaryPayloadSurvivesIntact() {
     // Every byte value must round-trip — an m4a is not valid UTF-8.
     let payload = Data((0...255).map { UInt8($0) })
-    var body = MultipartBody(boundary: "B")
-    body.addFile(name: "file", filename: "clip.m4a", contentType: "audio/m4a", data: payload)
+    var binaryBody = MultipartBody(boundary: "B")
+    binaryBody.addFile(name: "file", filename: "clip.m4a", contentType: "audio/m4a", data: payload)
+    Checks.check(binaryBody.finished.range(of: payload) != nil, "binary payload survives intact")
 
-    #expect(body.finished.range(of: payload) != nil)
-}
-
-@Test func multiplePartsAppearInOrder() {
-    var body = MultipartBody(boundary: "B")
-    body.addField(name: "first", value: "1")
-    body.addField(name: "second", value: "2")
-
-    let text = String(data: body.finished, encoding: .utf8)!
-    let firstIndex = text.range(of: "name=\"first\"")!.lowerBound
-    let secondIndex = text.range(of: "name=\"second\"")!.lowerBound
-    #expect(firstIndex < secondIndex)
+    var ordered = MultipartBody(boundary: "B")
+    ordered.addField(name: "first", value: "1")
+    ordered.addField(name: "second", value: "2")
+    let orderedText = String(data: ordered.finished, encoding: .utf8)!
+    Checks.check(orderedText.range(of: "name=\"first\"")!.lowerBound
+                    < orderedText.range(of: "name=\"second\"")!.lowerBound,
+                 "parts appear in the order they were added")
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run the checks to verify they fail**
 
-Run: `swift test`
+Run: `swift run XFlowChecks`
 Expected: FAIL — `cannot find 'MultipartBody' in scope`.
 
 - [ ] **Step 3: Write the implementation**
@@ -475,15 +513,15 @@ public struct MultipartBody {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Run the checks to verify they pass**
 
-Run: `swift test`
-Expected: PASS, 12 tests total.
+Run: `swift run XFlowChecks`
+Expected: `✅ 22 checks passed`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/XFlowCore/MultipartBody.swift Tests/XFlowCoreTests/MultipartBodyTests.swift
+git add Sources/XFlowCore/MultipartBody.swift Sources/XFlowChecks/MultipartBodyChecks.swift
 git commit -m "feat: multipart form body encoder"
 ```
 
@@ -493,65 +531,53 @@ git commit -m "feat: multipart form body encoder"
 
 **Files:**
 - Create: `Sources/XFlowCore/XFlowError.swift`
-- Create: `Tests/XFlowCoreTests/XFlowErrorTests.swift`
+- Create: `Sources/XFlowChecks/XFlowErrorChecks.swift`
 
 **Interfaces:**
 - Consumes: nothing
 - Produces: `XFlowError` (enum: `.noAPIKey`, `.invalidKey`, `.rateLimited`, `.server(String)`, `.emptyTranscript`, `.decoding`, `.network`), `XFlowError.from(status:body:) -> XFlowError?`, `var userMessage: String`, `var isRetryable: Bool`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing checks**
 
-`Tests/XFlowCoreTests/XFlowErrorTests.swift`:
+`Sources/XFlowChecks/XFlowErrorChecks.swift`:
 
 ```swift
 import Foundation
-import Testing
-@testable import XFlowCore
+import Foundation
+import XFlowCore
 
-@Test func successStatusProducesNoError() {
-    #expect(XFlowError.from(status: 200, body: Data()) == nil)
-}
+func checkXFlowError() {
+    Checks.equal(XFlowError.from(status: 200, body: Data()), nil, "2xx produces no error")
+    Checks.equal(XFlowError.from(status: 401, body: Data()), .invalidKey, "401 is an invalid key")
+    Checks.equal(XFlowError.from(status: 429, body: Data()), .rateLimited, "429 is rate limited")
 
-@Test func unauthorizedMapsToInvalidKey() {
-    #expect(XFlowError.from(status: 401, body: Data()) == .invalidKey)
-}
+    Checks.equal(XFlowError.from(status: 404, body: Data(#"{"error":{"message":"model not found"}}"#.utf8)),
+                 .server("model not found"),
+                 "other errors carry the server message")
 
-@Test func tooManyRequestsMapsToRateLimited() {
-    #expect(XFlowError.from(status: 429, body: Data()) == .rateLimited)
-}
+    Checks.equal(XFlowError.from(status: 500, body: Data("<html>oops</html>".utf8)),
+                 .server("HTTP 500"),
+                 "unparseable error body still produces an error")
 
-@Test func otherErrorsCarryTheServerMessage() {
-    let body = Data(#"{"error":{"message":"model not found"}}"#.utf8)
-    #expect(XFlowError.from(status: 404, body: body) == .server("model not found"))
-}
+    Checks.equal(XFlowError.rateLimited.isRetryable, true, "rate limit is retryable")
+    Checks.equal(XFlowError.network.isRetryable, true, "network failure is retryable")
+    Checks.equal(XFlowError.server("boom").isRetryable, true, "server error is retryable")
+    Checks.equal(XFlowError.invalidKey.isRetryable, false, "invalid key is not retryable")
+    Checks.equal(XFlowError.noAPIKey.isRetryable, false, "missing key is not retryable")
+    Checks.equal(XFlowError.emptyTranscript.isRetryable, false, "empty transcript is not retryable")
 
-@Test func unparseableErrorBodyStillProducesAnError() {
-    let error = XFlowError.from(status: 500, body: Data("<html>oops</html>".utf8))
-    #expect(error == .server("HTTP 500"))
-}
-
-@Test func onlyTransientFailuresAreRetryable() {
-    #expect(XFlowError.rateLimited.isRetryable == true)
-    #expect(XFlowError.network.isRetryable == true)
-    #expect(XFlowError.server("boom").isRetryable == true)
-    #expect(XFlowError.invalidKey.isRetryable == false)
-    #expect(XFlowError.noAPIKey.isRetryable == false)
-    #expect(XFlowError.emptyTranscript.isRetryable == false)
-}
-
-@Test func everyErrorHasANonEmptyUserMessage() {
     let all: [XFlowError] = [
         .noAPIKey, .invalidKey, .rateLimited, .server("x"), .emptyTranscript, .decoding, .network,
     ]
     for error in all {
-        #expect(error.userMessage.isEmpty == false)
+        Checks.check(!error.userMessage.isEmpty, "\(error) has a user message")
     }
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run the checks to verify they fail**
 
-Run: `swift test`
+Run: `swift run XFlowChecks`
 Expected: FAIL — `cannot find 'XFlowError' in scope`.
 
 - [ ] **Step 3: Write the implementation**
@@ -610,15 +636,15 @@ public enum XFlowError: Error, Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Run the checks to verify they pass**
 
-Run: `swift test`
-Expected: PASS, 19 tests total.
+Run: `swift run XFlowChecks`
+Expected: `✅ 39 checks passed`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/XFlowCore/XFlowError.swift Tests/XFlowCoreTests/XFlowErrorTests.swift
+git add Sources/XFlowCore/XFlowError.swift Sources/XFlowChecks/XFlowErrorChecks.swift
 git commit -m "feat: error type with http status mapping and retry policy"
 ```
 
@@ -628,7 +654,7 @@ git commit -m "feat: error type with http status mapping and retry policy"
 
 **Files:**
 - Create: `Sources/XFlowCore/CleanupPrompt.swift`
-- Create: `Tests/XFlowCoreTests/CleanupPromptTests.swift`
+- Create: `Sources/XFlowChecks/CleanupPromptChecks.swift`
 
 **Interfaces:**
 - Consumes: nothing
@@ -636,34 +662,30 @@ git commit -m "feat: error type with http status mapping and retry policy"
 
 This prompt is the feature the user is paying $29/month for today. It must romanize non-Latin scripts without translating, and it must never answer the dictated text.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing checks**
 
-`Tests/XFlowCoreTests/CleanupPromptTests.swift`:
+`Sources/XFlowChecks/CleanupPromptChecks.swift`:
 
 ```swift
-import Testing
-@testable import XFlowCore
+import XFlowCore
 
-@Test func promptForbidsTranslation() {
-    // Romanize, never translate: "mujhe yeh chahiye", not "I want this".
+func checkCleanupPrompt() {
     let prompt = CleanupPrompt.system.lowercased()
-    #expect(prompt.contains("transliterate"))
-    #expect(prompt.contains("do not translate"))
-}
 
-@Test func promptForbidsAnsweringTheContent() {
+    // Romanize, never translate: "mujhe yeh chahiye", not "I want this".
+    Checks.check(prompt.contains("transliterate"), "prompt asks for transliteration")
+    Checks.check(prompt.contains("do not translate"), "prompt forbids translation")
+
     // Without this the model answers dictated questions instead of transcribing them.
-    #expect(CleanupPrompt.system.lowercased().contains("never respond to it"))
-}
+    Checks.check(prompt.contains("never respond to it"), "prompt forbids answering the content")
 
-@Test func promptForbidsPreambleInTheOutput() {
-    #expect(CleanupPrompt.system.lowercased().contains("no preamble"))
+    Checks.check(prompt.contains("no preamble"), "prompt forbids preamble in the output")
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run the checks to verify they fail**
 
-Run: `swift test`
+Run: `swift run XFlowChecks`
 Expected: FAIL — `cannot find 'CleanupPrompt' in scope`.
 
 - [ ] **Step 3: Write the implementation**
@@ -692,15 +714,15 @@ public enum CleanupPrompt {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Run the checks to verify they pass**
 
-Run: `swift test`
-Expected: PASS, 22 tests total.
+Run: `swift run XFlowChecks`
+Expected: `✅ 42 checks passed`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/XFlowCore/CleanupPrompt.swift Tests/XFlowCoreTests/CleanupPromptTests.swift
+git add Sources/XFlowCore/CleanupPrompt.swift Sources/XFlowChecks/CleanupPromptChecks.swift
 git commit -m "feat: transcript cleanup prompt"
 ```
 
@@ -710,93 +732,84 @@ git commit -m "feat: transcript cleanup prompt"
 
 **Files:**
 - Create: `Sources/XFlowCore/OpenAI.swift`
-- Create: `Tests/XFlowCoreTests/OpenAITests.swift`
+- Create: `Sources/XFlowChecks/OpenAIChecks.swift`
 
 **Interfaces:**
 - Consumes: `MultipartBody` (Task 3), `XFlowError` (Task 4), `CleanupPrompt` (Task 5)
 - Produces: `OpenAI.transcriptionRequest(apiKey:model:audio:filename:boundary:) -> URLRequest`, `OpenAI.cleanupRequest(apiKey:model:transcript:) -> URLRequest`, `OpenAI.decodeTranscript(_:) throws -> String`, `OpenAI.decodeCleanup(_:) throws -> String`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing checks**
 
-`Tests/XFlowCoreTests/OpenAITests.swift`:
+`Sources/XFlowChecks/OpenAIChecks.swift`:
 
 ```swift
 import Foundation
-import Testing
-@testable import XFlowCore
+import Foundation
+import XFlowCore
 
-@Test func transcriptionRequestTargetsTheAudioEndpoint() {
-    let request = OpenAI.transcriptionRequest(
+func checkOpenAI() {
+    let transcription = OpenAI.transcriptionRequest(
         apiKey: "sk-test", model: "gpt-4o-transcribe",
-        audio: Data([0x00]), filename: "clip.m4a", boundary: "B"
+        audio: Data([0xDE, 0xAD, 0xBE, 0xEF]), filename: "clip.m4a", boundary: "B"
     )
-    #expect(request.url?.absoluteString == "https://api.openai.com/v1/audio/transcriptions")
-    #expect(request.httpMethod == "POST")
-    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer sk-test")
-    #expect(request.value(forHTTPHeaderField: "Content-Type") == "multipart/form-data; boundary=B")
-}
+    Checks.equal(transcription.url?.absoluteString,
+                 "https://api.openai.com/v1/audio/transcriptions",
+                 "transcription request targets the audio endpoint")
+    Checks.equal(transcription.httpMethod, "POST", "transcription request is a POST")
+    Checks.equal(transcription.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test",
+                 "transcription request carries the bearer token")
+    Checks.equal(transcription.value(forHTTPHeaderField: "Content-Type"),
+                 "multipart/form-data; boundary=B",
+                 "transcription request declares the multipart boundary")
 
-@Test func transcriptionRequestBodyCarriesModelAndAudio() {
-    let audio = Data([0xDE, 0xAD, 0xBE, 0xEF])
-    let request = OpenAI.transcriptionRequest(
-        apiKey: "sk-test", model: "gpt-4o-transcribe",
-        audio: audio, filename: "clip.m4a", boundary: "B"
-    )
-    let body = request.httpBody!
-    #expect(body.range(of: audio) != nil)
-    #expect(String(data: body, encoding: .isoLatin1)!.contains("gpt-4o-transcribe"))
-}
+    let transcriptionBody = transcription.httpBody!
+    Checks.check(transcriptionBody.range(of: Data([0xDE, 0xAD, 0xBE, 0xEF])) != nil,
+                 "transcription body carries the audio bytes")
+    Checks.check(String(data: transcriptionBody, encoding: .isoLatin1)!.contains("gpt-4o-transcribe"),
+                 "transcription body carries the model name")
 
-@Test func cleanupRequestSendsSystemPromptAndTranscript() throws {
-    let request = OpenAI.cleanupRequest(apiKey: "sk-test", model: "gpt-4o-mini", transcript: "hello there")
-    #expect(request.url?.absoluteString == "https://api.openai.com/v1/chat/completions")
-    #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    let cleanup = OpenAI.cleanupRequest(apiKey: "sk-test", model: "gpt-4o-mini", transcript: "hello there")
+    Checks.equal(cleanup.url?.absoluteString, "https://api.openai.com/v1/chat/completions",
+                 "cleanup request targets the chat endpoint")
+    Checks.equal(cleanup.value(forHTTPHeaderField: "Content-Type"), "application/json",
+                 "cleanup request is json")
 
-    let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
-    #expect(json["model"] as? String == "gpt-4o-mini")
-    #expect(json["temperature"] as? Double == 0)
+    let json = try! JSONSerialization.jsonObject(with: cleanup.httpBody!) as! [String: Any]
+    Checks.equal(json["model"] as? String, "gpt-4o-mini", "cleanup request names the model")
+    Checks.equal(json["temperature"] as? Double, 0, "cleanup runs at temperature zero")
 
     let messages = json["messages"] as! [[String: String]]
-    #expect(messages.count == 2)
-    #expect(messages[0]["role"] == "system")
-    #expect(messages[0]["content"] == CleanupPrompt.system)
-    #expect(messages[1]["role"] == "user")
-    #expect(messages[1]["content"] == "hello there")
-}
+    Checks.equal(messages.count, 2, "cleanup sends exactly two messages")
+    Checks.equal(messages[0]["role"], "system", "first message is the system prompt")
+    Checks.equal(messages[0]["content"], CleanupPrompt.system, "system message is the cleanup prompt")
+    Checks.equal(messages[1]["role"], "user", "second message is the user turn")
+    Checks.equal(messages[1]["content"], "hello there", "user message is the transcript")
 
-@Test func transcriptIsDecodedAndTrimmed() throws {
-    let body = Data(#"{"text":"  mujhe yeh chahiye  "}"#.utf8)
-    #expect(try OpenAI.decodeTranscript(body) == "mujhe yeh chahiye")
-}
+    Checks.equal(try? OpenAI.decodeTranscript(Data(#"{"text":"  mujhe yeh chahiye  "}"#.utf8)),
+                 "mujhe yeh chahiye",
+                 "transcript is decoded and trimmed")
 
-@Test func blankTranscriptIsAnEmptyTranscriptError() {
-    let body = Data(#"{"text":"   "}"#.utf8)
-    #expect(throws: XFlowError.emptyTranscript) {
-        try OpenAI.decodeTranscript(body)
+    Checks.throwsError(XFlowError.emptyTranscript, "blank transcript is an empty transcript error") {
+        _ = try OpenAI.decodeTranscript(Data(#"{"text":"   "}"#.utf8))
     }
-}
 
-@Test func malformedTranscriptBodyIsADecodingError() {
-    #expect(throws: XFlowError.decoding) {
-        try OpenAI.decodeTranscript(Data("not json".utf8))
+    Checks.throwsError(XFlowError.decoding, "malformed transcript body is a decoding error") {
+        _ = try OpenAI.decodeTranscript(Data("not json".utf8))
     }
-}
 
-@Test func cleanupResponseIsDecodedAndTrimmed() throws {
-    let body = Data(#"{"choices":[{"message":{"content":"Mujhe yeh chahiye.\n"}}]}"#.utf8)
-    #expect(try OpenAI.decodeCleanup(body) == "Mujhe yeh chahiye.")
-}
+    Checks.equal(try? OpenAI.decodeCleanup(Data(#"{"choices":[{"message":{"content":"Mujhe yeh chahiye.\n"}}]}"#.utf8)),
+                 "Mujhe yeh chahiye.",
+                 "cleanup response is decoded and trimmed")
 
-@Test func cleanupResponseWithNoChoicesIsADecodingError() {
-    #expect(throws: XFlowError.decoding) {
-        try OpenAI.decodeCleanup(Data(#"{"choices":[]}"#.utf8))
+    Checks.throwsError(XFlowError.decoding, "cleanup response with no choices is a decoding error") {
+        _ = try OpenAI.decodeCleanup(Data(#"{"choices":[]}"#.utf8))
     }
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run the checks to verify they fail**
 
-Run: `swift test`
+Run: `swift run XFlowChecks`
 Expected: FAIL — `cannot find 'OpenAI' in scope`.
 
 - [ ] **Step 3: Write the implementation**
@@ -875,15 +888,15 @@ public enum OpenAI {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Run the checks to verify they pass**
 
-Run: `swift test`
-Expected: PASS, 30 tests total.
+Run: `swift run XFlowChecks`
+Expected: `✅ 57 checks passed`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/XFlowCore/OpenAI.swift Tests/XFlowCoreTests/OpenAITests.swift
+git add Sources/XFlowCore/OpenAI.swift Sources/XFlowChecks/OpenAIChecks.swift
 git commit -m "feat: openai request builders and response decoding"
 ```
 
@@ -893,63 +906,56 @@ git commit -m "feat: openai request builders and response decoding"
 
 **Files:**
 - Create: `Sources/XFlowCore/ClipboardSwap.swift`
-- Create: `Tests/XFlowCoreTests/ClipboardSwapTests.swift`
+- Create: `Sources/XFlowChecks/ClipboardSwapChecks.swift`
 
 **Interfaces:**
 - Consumes: nothing
 - Produces: `ClipboardSwap(pasteboard: NSPasteboard = .general)`, `func snapshot() -> String?`, `func write(_ text: String)`, `func restore(_ snapshot: String?)`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing checks**
 
 These use a private named pasteboard so the test never touches the user's real clipboard.
 
-`Tests/XFlowCoreTests/ClipboardSwapTests.swift`:
+`Sources/XFlowChecks/ClipboardSwapChecks.swift`:
 
 ```swift
 import AppKit
-import Testing
-@testable import XFlowCore
+import AppKit
+import XFlowCore
 
-private func makeTestPasteboard() -> NSPasteboard {
-    let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.aamirhannan.xflow.tests"))
-    pasteboard.clearContents()
-    return pasteboard
-}
+func checkClipboardSwap() {
+    // A private named pasteboard, so the checks never touch the real clipboard.
+    func makeTestPasteboard() -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.aamirhannan.xflow.checks"))
+        pasteboard.clearContents()
+        return pasteboard
+    }
 
-@Test func snapshotReturnsNilWhenClipboardIsEmpty() {
-    let swap = ClipboardSwap(pasteboard: makeTestPasteboard())
-    #expect(swap.snapshot() == nil)
-}
+    Checks.equal(ClipboardSwap(pasteboard: makeTestPasteboard()).snapshot(), nil,
+                 "snapshot is nil when the clipboard is empty")
 
-@Test func writeThenSnapshotRoundTrips() {
-    let swap = ClipboardSwap(pasteboard: makeTestPasteboard())
-    swap.write("mujhe yeh chahiye")
-    #expect(swap.snapshot() == "mujhe yeh chahiye")
-}
+    let roundTrip = ClipboardSwap(pasteboard: makeTestPasteboard())
+    roundTrip.write("mujhe yeh chahiye")
+    Checks.equal(roundTrip.snapshot(), "mujhe yeh chahiye", "write then snapshot round-trips")
 
-@Test func restorePutsThePreviousTextBack() {
     let swap = ClipboardSwap(pasteboard: makeTestPasteboard())
     swap.write("original")
-
     let saved = swap.snapshot()
     swap.write("transcript")
-    #expect(swap.snapshot() == "transcript")
-
+    Checks.equal(swap.snapshot(), "transcript", "the transcript overwrites the clipboard")
     swap.restore(saved)
-    #expect(swap.snapshot() == "original")
-}
+    Checks.equal(swap.snapshot(), "original", "restore puts the previous text back")
 
-@Test func restoringNilClearsTheClipboard() {
-    let swap = ClipboardSwap(pasteboard: makeTestPasteboard())
-    swap.write("transcript")
-    swap.restore(nil)
-    #expect(swap.snapshot() == nil)
+    let clearing = ClipboardSwap(pasteboard: makeTestPasteboard())
+    clearing.write("transcript")
+    clearing.restore(nil)
+    Checks.equal(clearing.snapshot(), nil, "restoring nil clears the clipboard")
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run the checks to verify they fail**
 
-Run: `swift test`
+Run: `swift run XFlowChecks`
 Expected: FAIL — `cannot find 'ClipboardSwap' in scope`.
 
 - [ ] **Step 3: Write the implementation**
@@ -985,15 +991,15 @@ public struct ClipboardSwap {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Run the checks to verify they pass**
 
-Run: `swift test`
-Expected: PASS, 34 tests total.
+Run: `swift run XFlowChecks`
+Expected: `✅ 61 checks passed`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/XFlowCore/ClipboardSwap.swift Tests/XFlowCoreTests/ClipboardSwapTests.swift
+git add Sources/XFlowCore/ClipboardSwap.swift Sources/XFlowChecks/ClipboardSwapChecks.swift
 git commit -m "feat: clipboard save and restore"
 ```
 
@@ -1177,8 +1183,8 @@ struct Transcriber {
 
 - [ ] **Step 4: Verify it compiles**
 
-Run: `swift build && swift test`
-Expected: build succeeds, 34 tests still pass.
+Run: `swift build && swift run XFlowChecks`
+Expected: build succeeds, all checks still pass.
 
 - [ ] **Step 5: Commit**
 
@@ -2096,8 +2102,8 @@ app.run()
 
 - [ ] **Step 3: Verify it builds and tests still pass**
 
-Run: `swift build && swift test`
-Expected: build succeeds, 34 tests pass.
+Run: `swift build && swift run XFlowChecks`
+Expected: build succeeds, all checks pass.
 
 - [ ] **Step 4: Build the app bundle and launch it**
 
@@ -2208,7 +2214,7 @@ defaults write com.aamirhannan.xflow sttModel -string "gpt-4o-mini-transcribe"
 ## Development
 
 ```bash
-swift test          # pure logic in XFlowCore
+swift run XFlowChecks   # assert-based checks over XFlowCore
 swift build         # type-check everything
 ./build.sh debug    # assemble and sign the .app
 ```
