@@ -2,12 +2,44 @@ import Foundation
 import OSLog
 import XFlowCore
 
-/// Read with: log show --last 30m --predicate 'subsystem == "com.aamirhannan.xflow"'
+/// Read with: /usr/bin/log show --last 30m --predicate 'subsystem == "com.aamirhannan.xflow"'
 private let log = Logger(subsystem: "com.aamirhannan.xflow", category: "transcriber")
+
+/// Reports where a request actually spent its time. The same upload succeeds
+/// from a command-line process and stalls from inside this app, so knowing
+/// whether it dies during connect, send, or wait is the whole question.
+private final class MetricsLogger: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didFinishCollecting metrics: URLSessionTaskMetrics
+    ) {
+        guard let t = metrics.transactionMetrics.last else { return }
+
+        func ms(_ from: Date?, _ to: Date?) -> String {
+            guard let from, let to else { return "-" }
+            return String(format: "%.0f", to.timeIntervalSince(from) * 1000)
+        }
+
+        let line = """
+        metrics reused=\(t.isReusedConnection) proto=\(t.networkProtocolName ?? "?") \
+        cellular=\(t.isCellular) \
+        dns=\(ms(t.domainLookupStartDate, t.domainLookupEndDate)) \
+        connect=\(ms(t.connectStartDate, t.connectEndDate)) \
+        tls=\(ms(t.secureConnectionStartDate, t.secureConnectionEndDate)) \
+        send=\(ms(t.requestStartDate, t.requestEndDate)) \
+        wait=\(ms(t.requestEndDate, t.responseStartDate)) \
+        recv=\(ms(t.responseStartDate, t.responseEndDate)) \
+        bodySent=\(t.countOfRequestBodyBytesSent)
+        """
+        log.notice("\(line, privacy: .public)")
+    }
+}
 
 /// Audio file in, finished text out. Owns both API calls and the retry policy.
 struct Transcriber {
     private let session: URLSession
+    private let metrics = MetricsLogger()
 
     init() {
         let config = URLSessionConfiguration.default
@@ -16,12 +48,18 @@ struct Transcriber {
         // wrong, not slow. Paired with a hard ceiling on the whole transfer.
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 60
-        session = URLSession(configuration: config)
+        session = URLSession(configuration: config, delegate: metrics, delegateQueue: nil)
     }
 
     func transcribe(fileURL: URL) async throws -> String {
         guard let apiKey = Keychain.apiKey else { throw XFlowError.noAPIKey }
         let audio = try Data(contentsOf: fileURL)
+
+        // Catches a truncated clip: AVAudioRecorder.stop() closing the file is
+        // not obviously synchronous, and a half-written m4a would look like a
+        // network problem from the outside.
+        let onDisk = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? nil
+        log.notice("clip read: inMemory=\(audio.count, privacy: .public)B onDisk=\(onDisk ?? -1, privacy: .public)B")
 
         let transcript = try await send(
             OpenAI.transcriptionRequest(
