@@ -24,5 +24,7 @@ checkSegmentPolicy()
 checkTranscriptAssembler()
 checkHistoryLog()
 checkHistoryStore()
+checkStatistics()
+checkHistoryQuery()
 
 Checks.report()
