@@ -3,5 +3,6 @@
 
 checkSessionState()
 checkMultipartBody()
+checkXFlowError()
 
 Checks.report()
