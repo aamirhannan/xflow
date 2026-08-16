@@ -62,9 +62,16 @@ struct Transcriber {
     }
 
     func transcribe(fileURL: URL) async throws -> Transcript {
-        guard let sttKey = Keychain.openAIKey, let cleanupKey = Keychain.groqKey else {
-            throw XFlowError.noAPIKey
-        }
+        // Cleanup always runs on Groq, so that key is always needed. The
+        // transcription key depends on which model is selected: the default
+        // whisper model routes to Groq and reuses the same key, so the OpenAI
+        // key is only required when someone has switched to an OpenAI model.
+        guard let cleanupKey = Keychain.groqKey else { throw XFlowError.noAPIKey }
+        let model = Settings.sttModel
+        let sttKey = Transcription.endpoint(for: model) == Transcription.groqURL
+            ? cleanupKey
+            : Keychain.openAIKey
+        guard let sttKey else { throw XFlowError.noAPIKey }
         let (session, _) = makeSession()
         defer { session.finishTasksAndInvalidate() }
         let audio = try Data(contentsOf: fileURL)
@@ -78,7 +85,7 @@ struct Transcriber {
         let transcript = try await send(
             Transcription.request(
                 apiKey: sttKey,
-                model: Settings.sttModel,
+                model: model,
                 audio: audio,
                 filename: fileURL.lastPathComponent
             ),

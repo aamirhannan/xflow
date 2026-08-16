@@ -51,24 +51,37 @@ fn up
 The constant wait comes from that structure: everything except the tail was
 already done while the user was still speaking.
 
-## Providers, and why they are split
+## Providers
 
 | Stage | Provider | Model |
 | --- | --- | --- |
-| Speech to text | OpenAI | `gpt-4o-mini-transcribe` |
+| Speech to text | Groq | `whisper-large-v3-turbo` |
 | Cleanup / formatting | Groq | `llama-3.3-70b-versatile` |
 
-Split by measurement, not preference. Whisper commits to a single language per
-clip, so code-switched Hindi/English loses whichever side does not win — Groq's
-Whisper deleted the Hindi in 6 of 6 runs on a mixed recording. OpenAI's model
-keeps both. Groq is far faster and cheaper for the text stage, where no such
-failure exists.
+Both legs on Groq, so **one API key runs the whole app**. About ₹3.5 per hour.
 
-Whisper model IDs still route to Groq (`Transcription.endpoint(for:)`), so
-switching the STT provider back is a settings change, not a rewrite.
+This is a trade, not an upgrade, and it reverses V3. Whisper commits to a single
+language per clip, so code-switched speech loses whichever side does not win.
+Measured on `audio/`, on the shipped code path:
 
-Two keys in the Keychain under service `com.aamirhannan.xflow`, accounts
-`openai` and `groq`.
+| Recording | Result | Runs |
+| --- | --- | --- |
+| English | flawless, byte-identical output | 3 of 3 |
+| Mixed Hindi + English | Hindi translated to English | 6 of 6 |
+| Pure Hindi | translated to English | 3 of 3 |
+
+`gpt-4o-mini-transcribe` is the only model measured to keep both languages in one
+sentence, and it was the default through V3 for that reason. It costs 4.5x more
+per hour, and this app's own history showed 19 of 20 real dictations were
+English — so the multilingual model became a setting rather than the default.
+
+**Switching back is one setting.** `Settings.sttModel` to
+`gpt-4o-mini-transcribe`; `Transcription.endpoint(for:)` routes it to OpenAI and
+the OpenAI key becomes required. Nothing else changes.
+
+Keys live in the Keychain under service `com.aamirhannan.xflow`: account `groq`
+is required, account `openai` is optional and read only when an OpenAI model is
+selected.
 
 ## Cleanup
 

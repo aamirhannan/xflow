@@ -8,14 +8,22 @@ func checkGroq() {
         audio: audio, filename: "clip.m4a", boundary: "B"
     )
 
+    // The real invariant: the default model must reach the provider that holds
+    // the only key the app requires. Both legs on Groq is what makes one key
+    // enough, so a default that silently routed elsewhere would break setup for
+    // anyone who never entered an OpenAI key.
     Checks.equal(request.url?.absoluteString,
-                 "https://api.openai.com/v1/audio/transcriptions",
-                 "transcription targets openai, the only model that keeps hindi and english both")
-    Checks.equal(Transcription.defaultModel, "gpt-4o-mini-transcribe", "stt model is 4o-mini-transcribe")
-    // Whisper model ids must still route to Groq, so switching back is one setting.
-    Checks.equal(Transcription.endpoint(for: "whisper-large-v3-turbo").absoluteString,
                  "https://api.groq.com/openai/v1/audio/transcriptions",
-                 "whisper models still route to groq")
+                 "the default transcription model routes to groq, so one key is enough")
+    Checks.equal(Transcription.defaultModel, "whisper-large-v3-turbo",
+                 "stt model is groq whisper-large-v3-turbo")
+
+    // The multilingual model stays one setting away. It is the only one measured
+    // to keep Hindi and English both intact in a single sentence, and it must
+    // route to OpenAI when selected.
+    Checks.equal(Transcription.endpoint(for: "gpt-4o-mini-transcribe").absoluteString,
+                 "https://api.openai.com/v1/audio/transcriptions",
+                 "the multilingual model still routes to openai")
     Checks.equal(request.httpMethod, "POST", "transcription is a POST")
     Checks.equal(request.value(forHTTPHeaderField: "Authorization"), "Bearer gsk-test",
                  "transcription carries the bearer token")
@@ -23,7 +31,7 @@ func checkGroq() {
 
     let body = String(data: request.httpBody!, encoding: .isoLatin1)!
     Checks.check(request.httpBody!.range(of: audio) != nil, "body carries the audio bytes")
-    Checks.check(body.contains("gpt-4o-mini-transcribe"), "body names the model")
+    Checks.check(body.contains("whisper-large-v3-turbo"), "body names the model")
     // Regression guard, three measured harms behind it. The `prompt` field is not
     // a vocabulary list to the API — it is previous context, and the model
     // continues from it. Sending those 14 English terms on the audio request:

@@ -1,21 +1,33 @@
 import Foundation
 import Security
+import XFlowCore
 
 /// The API key lives here and nowhere else. This repository is public: it must
 /// never reach UserDefaults, a file, a log line, or a commit.
 enum Keychain {
     private static let service = "com.aamirhannan.xflow"
-    // Two providers, two keys: transcription runs on OpenAI because it is the
-    // only model that keeps Hindi and English both intact in one sentence;
-    // cleanup runs on Groq because it is far faster and cheaper for formatting.
+
+    /// Optional. Only needed when `Settings.sttModel` is an OpenAI model, which
+    /// is the multilingual path — see `Transcription`. On the default Groq model
+    /// the app never reads this.
     static var openAIKey: String? {
         get { read(account: "openai") }
         set { newValue.map { write($0, account: "openai") } ?? delete(account: "openai") }
     }
 
+    /// Always required: cleanup runs on Groq, and so does transcription by
+    /// default.
     static var groqKey: String? {
         get { read(account: "groq") }
         set { newValue.map { write($0, account: "groq") } ?? delete(account: "groq") }
+    }
+
+    /// Whether the keys on hand cover the model currently selected. An OpenAI
+    /// model needs both; the default Groq one needs only the Groq key.
+    static var hasKeysForSelectedModel: Bool {
+        guard groqKey != nil else { return false }
+        let usesGroq = Transcription.endpoint(for: Settings.sttModel) == Transcription.groqURL
+        return usesGroq || openAIKey != nil
     }
 
     private static func read(account: String) -> String? {

@@ -78,17 +78,24 @@ struct SettingsView: View {
     private var keysSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("API keys").font(.headline)
-            SecureField("sk-…", text: $openAIKey)
-                .onSubmit { Keychain.openAIKey = trimmed(openAIKey) }
+
+            Text("Groq — required").font(.subheadline)
             SecureField("gsk_…", text: $groqKey)
                 .onSubmit { Keychain.groqKey = trimmed(groqKey) }
+
+            Text("OpenAI — optional").font(.subheadline)
+            SecureField("sk-…", text: $openAIKey)
+                .onSubmit { Keychain.openAIKey = trimmed(openAIKey) }
+
             Button("Save keys") {
                 Keychain.openAIKey = trimmed(openAIKey)
                 Keychain.groqKey = trimmed(groqKey)
             }
-            Text("Stored in your macOS Keychain, never on disk. Transcription runs on "
-                 + "OpenAI because it is the only model that keeps Hindi and English both "
-                 + "intact in one sentence. Formatting runs on Groq, which is far faster.")
+            Text("Both stored in your macOS Keychain, never on disk. Groq runs both "
+                 + "transcription and formatting, so its key is the only one you need. "
+                 + "Add an OpenAI key only if you dictate in more than one language in a "
+                 + "single sentence — Groq's model translates the other language away, and "
+                 + "OpenAI's costs about 4.5x more per hour to keep it.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

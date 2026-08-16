@@ -75,16 +75,25 @@ struct OnboardingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         case 5:
             VStack(alignment: .leading, spacing: 12) {
-                Text("Two API keys").font(.title2)
+                Text("Your Groq API key").font(.title2)
                 Text(
-                    "Transcription runs on OpenAI because it is the only model that keeps "
-                    + "Hindi and English both intact in one sentence. Formatting runs on "
-                    + "Groq, which is far faster. Both are stored in your Keychain."
+                    "Groq runs both the transcription and the formatting, so this is the "
+                    + "only key XFlow needs. Get one at console.groq.com/keys. It is stored "
+                    + "in your Keychain, never on disk."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                SecureField("gsk_…", text: $groqKey).textFieldStyle(.roundedBorder)
+
+                Text("OpenAI key — optional").font(.subheadline)
+                Text(
+                    "Only needed if you mix two languages inside one sentence. Groq's model "
+                    + "translates the other language away; OpenAI's keeps both, at about "
+                    + "4.5x the cost per hour. You can add this later in Settings."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 SecureField("sk-…", text: $openAIKey).textFieldStyle(.roundedBorder)
-                SecureField("gsk_…", text: $groqKey).textFieldStyle(.roundedBorder)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         default:

@@ -54,8 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // lost a permission or a key gets taken straight to the checklist.
                 if !Settings.hasCompletedOnboarding {
                     self.mainWindow.showOnboarding()
-                } else if !Permissions.allGranted
-                    || Keychain.openAIKey == nil || Keychain.groqKey == nil {
+                } else if !Permissions.allGranted || !Keychain.hasKeysForSelectedModel {
                     self.mainWindow.showSettings()
                 }
             }

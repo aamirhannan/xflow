@@ -11,11 +11,26 @@ import XFlowCore
 enum Probe {
     static func run(paths: [String]) {
         let env = ProcessInfo.processInfo.environment
-        guard let groq = env["GROQ_API_KEY"], let openai = env["OPENAI_API_KEY"],
-              !groq.isEmpty, !openai.isEmpty else {
-            print("set GROQ_API_KEY and OPENAI_API_KEY"); exit(2)
+        guard let groq = env["GROQ_API_KEY"], !groq.isEmpty else {
+            print("set GROQ_API_KEY"); exit(2)
         }
-        for path in paths { probe(path: path, sttKey: openai, cleanupKey: groq) }
+
+        // Mirrors the app: the OpenAI key is only needed when the selected model
+        // routes there. On the default Groq model, one key runs both legs, and
+        // demanding a second here would make the probe unusable for the setup it
+        // is supposed to verify.
+        let model = Transcription.defaultModel
+        let usesGroqForSTT = Transcription.endpoint(for: model) == Transcription.groqURL
+        let openai = env["OPENAI_API_KEY"] ?? ""
+        guard usesGroqForSTT || !openai.isEmpty else {
+            print("model \(model) routes to OpenAI, so OPENAI_API_KEY is required")
+            exit(2)
+        }
+
+        print("model: \(model)  →  \(Transcription.endpoint(for: model).host ?? "?")")
+        for path in paths {
+            probe(path: path, sttKey: usesGroqForSTT ? groq : openai, cleanupKey: groq)
+        }
     }
 
     private static func probe(path: String, sttKey: String, cleanupKey: String) {
