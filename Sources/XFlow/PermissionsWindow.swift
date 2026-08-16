@@ -31,12 +31,13 @@ final class PermissionsWindow: NSObject, NSWindowDelegate {
     private let window: NSWindow
     private let stack = NSStackView()
     private let keyField = NSSecureTextField()
+    private let vocabularyField = NSTextField()
     private var rows: [(label: String, status: NSTextField, check: () -> Bool)] = []
     private var refreshTimer: Timer?
 
     override init() {
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 520),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -61,9 +62,9 @@ final class PermissionsWindow: NSObject, NSWindowDelegate {
         )
 
         stack.addArrangedSubview(separator())
-        stack.addArrangedSubview(heading("OpenAI API key"))
+        stack.addArrangedSubview(heading("Groq API key"))
 
-        keyField.placeholderString = "sk-…"
+        keyField.placeholderString = "gsk_…"
         keyField.stringValue = Keychain.apiKey ?? ""
         keyField.target = self
         keyField.action = #selector(saveKey)
@@ -73,7 +74,24 @@ final class PermissionsWindow: NSObject, NSWindowDelegate {
         let save = NSButton(title: "Save key", target: self, action: #selector(saveKey))
         stack.addArrangedSubview(save)
 
-        stack.addArrangedSubview(caption("Stored in your macOS Keychain, never on disk."))
+        stack.addArrangedSubview(caption("Stored in your macOS Keychain, never on disk. Get one at console.groq.com/keys"))
+
+        stack.addArrangedSubview(separator())
+        stack.addArrangedSubview(heading("Vocabulary"))
+
+        vocabularyField.stringValue = Settings.vocabulary
+        vocabularyField.target = self
+        vocabularyField.action = #selector(saveVocabulary)
+        vocabularyField.widthAnchor.constraint(equalToConstant: 400).isActive = true
+        stack.addArrangedSubview(vocabularyField)
+
+        let saveVocab = NSButton(title: "Save vocabulary", target: self, action: #selector(saveVocabulary))
+        stack.addArrangedSubview(saveVocab)
+
+        stack.addArrangedSubview(caption(
+            "Names and acronyms you say often. This is the biggest accuracy lever in the app: "
+            + "without it, RBAC came back as आरबैक and \"risk owner\" as \"response और\"."
+        ))
 
         let content = NSView()
         content.addSubview(stack)
@@ -113,6 +131,10 @@ final class PermissionsWindow: NSObject, NSWindowDelegate {
     @objc private func saveKey() {
         let value = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         Keychain.apiKey = value.isEmpty ? nil : value
+    }
+
+    @objc private func saveVocabulary() {
+        Settings.vocabulary = vocabularyField.stringValue
     }
 
     private func addPermissionRow(_ title: String, pane: String, check: @escaping () -> Bool) {

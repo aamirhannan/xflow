@@ -5,7 +5,9 @@ import Security
 /// never reach UserDefaults, a file, a log line, or a commit.
 enum Keychain {
     private static let service = "com.aamirhannan.xflow"
-    private static let account = "openai"
+    // v1 stored an OpenAI key under "openai". Groq keys live under their own
+    // account, so an old key is simply ignored rather than sent to the wrong host.
+    private static let account = "groq"
 
     static var apiKey: String? {
         get { read() }

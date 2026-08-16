@@ -42,3 +42,17 @@ public enum RecordingPolicy {
         duration >= minimumDuration
     }
 }
+
+public enum SegmentPolicy {
+    /// Groq bills a 10-second minimum per request. Closing a segment sooner
+    /// pays for silence, so this floor makes segmenting cost nothing extra.
+    public static let minimumDuration: TimeInterval = 10
+    /// Someone can talk for a long time without a real pause. Past this we cut
+    /// anyway, otherwise the whole point of segmenting is lost.
+    public static let forceCloseAfter: TimeInterval = 30
+
+    public static func shouldClose(segmentDuration: TimeInterval, pauseDetected: Bool) -> Bool {
+        if segmentDuration >= forceCloseAfter { return true }
+        return pauseDetected && segmentDuration >= minimumDuration
+    }
+}
