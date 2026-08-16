@@ -153,8 +153,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             defer { try? FileManager.default.removeItem(at: url) }
             do {
-                let text = try await transcriber.transcribe(fileURL: url)
-                await MainActor.run { self.assembler.store(text, at: index) }
+                let transcript = try await transcriber.transcribe(fileURL: url)
+                await MainActor.run { self.assembler.store(transcript, at: index) }
             } catch {
                 log.error("segment \(index, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 await MainActor.run { self.assembler.markFailed(at: index) }
@@ -194,10 +194,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer { try? FileManager.default.removeItem(at: clip.url) }
 
             do {
-                let text = try await transcriber.transcribe(fileURL: clip.url)
+                let transcript = try await transcriber.transcribe(fileURL: clip.url)
                 await MainActor.run { self.handle(.transcriptReady) }
 
-                let pasted = await Inserter.insert(text)
+                let pasted = await Inserter.insert(transcript.cleaned)
                 await MainActor.run {
                     self.pill.hide()
                     self.handle(.inserted)
@@ -248,8 +248,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // longer grows with how long the user spoke.
             if let tail = result.tail {
                 do {
-                    let text = try await transcriber.transcribe(fileURL: tail)
-                    await MainActor.run { self.assembler.store(text, at: result.tailIndex) }
+                    let transcript = try await transcriber.transcribe(fileURL: tail)
+                    await MainActor.run { self.assembler.store(transcript, at: result.tailIndex) }
                 } catch {
                     await MainActor.run { self.assembler.markFailed(at: result.tailIndex) }
                 }
@@ -267,7 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let recovered = await self.wholeAudioFallback() { text = recovered }
             }
 
-            guard !text.isEmpty else {
+            guard !text.cleaned.isEmpty else {
                 await MainActor.run { self.fail("Nothing heard") }
                 return
             }
@@ -275,7 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The only latency number that matters: fn release to text on screen.
             log.notice("PERCEIVED WAIT \(String(format: "%.2f", Date().timeIntervalSince(releasedAt)), privacy: .public)s")
             await MainActor.run { self.handle(.transcriptReady) }
-            let pasted = await Inserter.insert(text)
+            let pasted = await Inserter.insert(text.cleaned)
             await MainActor.run {
                 self.pill.hide()
                 self.handle(.inserted)
@@ -288,7 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Last resort when a segment could not be transcribed: send the entire
     /// recording as one request. Slower, but no words are lost.
-    private func wholeAudioFallback() async -> String? {
+    private func wholeAudioFallback() async -> Transcript? {
         guard let url = segmentingRecorder.rebuildFullAudio() else { return nil }
         defer { try? FileManager.default.removeItem(at: url) }
         return try? await transcriber.transcribe(fileURL: url)

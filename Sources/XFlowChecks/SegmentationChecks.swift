@@ -88,36 +88,50 @@ func checkTranscriptAssembler() {
     // Segments finish out of order because they run concurrently. Order in the
     // output must follow the index, never completion time.
     var assembler = TranscriptAssembler()
-    assembler.store("second part", at: 1)
-    assembler.store("first part", at: 0)
-    assembler.store("third part", at: 2)
-    Checks.equal(assembler.assembled(), "first part second part third part",
+    assembler.store(Transcript(raw: "doosra bhag", cleaned: "second part"), at: 1)
+    assembler.store(Transcript(raw: "pehla bhag", cleaned: "first part"), at: 0)
+    assembler.store(Transcript(raw: "teesra bhag", cleaned: "third part"), at: 2)
+    Checks.equal(assembler.assembled().cleaned, "first part second part third part",
                  "segments assemble in index order, not completion order")
+    // Both sides are joined independently, so the raw text stays usable as a
+    // fallback even when it reads nothing like the cleaned output.
+    Checks.equal(assembler.assembled().raw, "pehla bhag doosra bhag teesra bhag",
+                 "the raw side assembles in index order too")
 
     let empty = TranscriptAssembler()
-    Checks.equal(empty.assembled(), "", "nothing stored assembles to empty")
+    Checks.equal(empty.assembled(), Transcript(raw: "", cleaned: ""),
+                 "nothing stored assembles to empty on both sides")
     Checks.equal(empty.failedIndices, [], "nothing stored has no failures")
 
     var withGap = TranscriptAssembler()
-    withGap.store("zero", at: 0)
-    withGap.store("two", at: 2)
-    Checks.equal(withGap.assembled(), "zero two", "a missing index is skipped, not padded")
+    withGap.store(Transcript(raw: "zero", cleaned: "zero"), at: 0)
+    withGap.store(Transcript(raw: "two", cleaned: "two"), at: 2)
+    Checks.equal(withGap.assembled().cleaned, "zero two", "a missing index is skipped, not padded")
 
     var failing = TranscriptAssembler()
-    failing.store("zero", at: 0)
+    failing.store(Transcript(raw: "zero", cleaned: "zero"), at: 0)
     failing.markFailed(at: 1)
-    failing.store("two", at: 2)
+    failing.store(Transcript(raw: "two", cleaned: "two"), at: 2)
     Checks.equal(failing.failedIndices, [1], "a failed segment is tracked by index")
 
     // A segment that failed and was later retried successfully is no longer failed.
-    failing.store("one", at: 1)
+    failing.store(Transcript(raw: "one", cleaned: "one"), at: 1)
     Checks.equal(failing.failedIndices, [], "a recovered segment clears its failure")
-    Checks.equal(failing.assembled(), "zero one two", "recovered text lands in the right place")
+    Checks.equal(failing.assembled().cleaned, "zero one two", "recovered text lands in the right place")
 
     // Blank results must not produce double spaces.
     var blanks = TranscriptAssembler()
-    blanks.store("zero", at: 0)
-    blanks.store("   ", at: 1)
-    blanks.store("two", at: 2)
-    Checks.equal(blanks.assembled(), "zero two", "blank segments do not leave gaps in the text")
+    blanks.store(Transcript(raw: "zero", cleaned: "zero"), at: 0)
+    blanks.store(Transcript(raw: "   ", cleaned: "   "), at: 1)
+    blanks.store(Transcript(raw: "two", cleaned: "two"), at: 2)
+    Checks.equal(blanks.assembled().cleaned, "zero two",
+                 "blank segments do not leave gaps in the text")
+
+    // One side blank and the other not is normal: cleanup can return nothing
+    // useful for a segment whose raw transcript is fine.
+    var lopsided = TranscriptAssembler()
+    lopsided.store(Transcript(raw: "kuch to hai", cleaned: ""), at: 0)
+    lopsided.store(Transcript(raw: "aur bhi", cleaned: "and more"), at: 1)
+    Checks.equal(lopsided.assembled().raw, "kuch to hai aur bhi", "a blank cleaned side does not drop the raw text")
+    Checks.equal(lopsided.assembled().cleaned, "and more", "a blank cleaned piece is skipped on its own side only")
 }
