@@ -10,7 +10,7 @@ import AppKit
 ///
 /// Requires Accessibility (and on some macOS versions Input Monitoring) to be
 /// granted. Without it, start() silently succeeds and no events ever arrive —
-/// which is why PermissionsWindow checks the grants explicitly.
+/// which is why Settings checks the grants explicitly.
 final class HotkeyMonitor {
     var onDown: () -> Void = {}
     var onUp: () -> Void = {}
