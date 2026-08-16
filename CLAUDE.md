@@ -9,8 +9,19 @@ Never commit directly to `main`.
 2. Cut a branch from that base: `git checkout -b <type>/<short-name> <base>`.
    Types: `feat/`, `fix/`, `docs/`, `chore/`.
 3. Do the work there, committing as you go.
-4. Merge back into the base with `--no-ff` once it builds and all checks pass.
-5. Push only when the user asks.
+4. Once it builds and all checks pass, push the branch and open a pull request
+   against the base.
+5. Stop there.
+
+**Never merge. Not with `git merge`, not with `gh pr merge`, not "just this
+once" because the diff is small or the branch is only documentation.** Every
+branch reaches `main` through a pull request that the user merges. If a branch
+depends on unmerged work, base the new branch on that branch and say so in the
+pull request — do not merge the dependency to unblock yourself.
+
+This is a public personal repo, so `gh` needs the account switch from the global
+rules: `gh auth switch -u aamirhannan` before any `gh` command, and back to
+`aamirhannan-irame` after.
 
 ## Ask before changing
 
