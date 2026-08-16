@@ -6,5 +6,6 @@ checkMultipartBody()
 checkXFlowError()
 checkCleanupPrompt()
 checkOpenAI()
+checkClipboardSwap()
 
 Checks.report()
