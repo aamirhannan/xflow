@@ -1,0 +1,145 @@
+import AppKit
+import Carbon.HIToolbox
+import UserNotifications
+import XFlowCore
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let hotkey = HotkeyMonitor()
+    private let recorder = Recorder()
+    private let pill = OverlayPill()
+    private let menuBar = MenuBarController()
+    private let permissionsWindow = PermissionsWindow()
+    private let transcriber = Transcriber()
+
+    private var state: SessionState = .idle
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        menuBar.onOpenSettings = { [weak self] in self?.permissionsWindow.show() }
+
+        hotkey.onDown = { [weak self] in self?.handle(.hotkeyDown) }
+        hotkey.onUp = { [weak self] in self?.handle(.hotkeyUp) }
+        hotkey.start()
+
+        recorder.onLevel = { [weak self] level in self?.pill.update(level: level) }
+        recorder.onAutoStop = { [weak self] in self?.handle(.hotkeyUp) }
+
+        requestNotificationAuthorization()
+
+        Task {
+            _ = await Recorder.requestMicrophoneAccess()
+            if !Permissions.allGranted || Keychain.apiKey == nil {
+                await MainActor.run { self.permissionsWindow.show() }
+            }
+        }
+    }
+
+    // MARK: - State machine
+
+    private func handle(_ event: SessionEvent) {
+        let previous = state
+        state = state.next(on: event, now: Date())
+        guard state != previous else { return }
+
+        switch (previous, state) {
+        case (.idle, .recording):         startRecording()
+        case (.recording, .transcribing): finishRecording()
+        case (_, .idle):                  menuBar.setRecording(false)
+        default:                          break
+        }
+    }
+
+    private func fail(_ message: String) {
+        pill.showMessage(message)
+        menuBar.setRecording(false)
+        state = state.next(on: .failed, now: Date())
+    }
+
+    // MARK: - Steps
+
+    private func startRecording() {
+        // Password fields turn on Secure Event Input, which blocks both key
+        // monitoring and paste. Refuse visibly rather than record into a void.
+        guard !IsSecureEventInputEnabled() else {
+            fail("Can't dictate into a password field")
+            return
+        }
+
+        do {
+            try recorder.start()
+            pill.showRecording()
+            menuBar.setRecording(true)
+        } catch {
+            fail("Microphone unavailable")
+        }
+    }
+
+    private func finishRecording() {
+        menuBar.setRecording(false)
+
+        guard let clip = recorder.stop() else {
+            state = state.next(on: .failed, now: Date())
+            pill.hide()
+            return
+        }
+
+        guard RecordingPolicy.shouldTranscribe(duration: clip.duration) else {
+            // An accidental fn tap. No API call, no message, no cost.
+            try? FileManager.default.removeItem(at: clip.url)
+            state = state.next(on: .failed, now: Date())
+            pill.hide()
+            return
+        }
+
+        pill.showTranscribing()
+
+        Task { [weak self] in
+            guard let self else { return }
+            defer { try? FileManager.default.removeItem(at: clip.url) }
+
+            do {
+                let text = try await transcriber.transcribe(fileURL: clip.url)
+                await MainActor.run { self.handle(.transcriptReady) }
+
+                let pasted = await Inserter.insert(text)
+                await MainActor.run {
+                    self.pill.hide()
+                    self.handle(.inserted)
+                    if !pasted {
+                        self.notify("Copied to clipboard — press ⌘V to paste (Accessibility is off)")
+                    }
+                }
+            } catch let error as XFlowError {
+                await MainActor.run {
+                    self.fail(error.userMessage)
+                    if error == .noAPIKey || error == .invalidKey {
+                        self.permissionsWindow.show()
+                    }
+                }
+            } catch {
+                await MainActor.run { self.fail("Transcription failed") }
+            }
+        }
+    }
+
+    // MARK: - Notifications
+
+    // UNUserNotificationCenter traps when the process has no bundle, which is
+    // what `swift run XFlow` produces. Always launch the built .app instead.
+    private var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
+
+    private func requestNotificationAuthorization() {
+        guard isBundled else { return }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
+    }
+
+    private func notify(_ body: String) {
+        guard isBundled else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "XFlow"
+        content.body = body
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString, content: content, trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+}
