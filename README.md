@@ -110,18 +110,191 @@ The menu bar icon turns red while recording. If the paste is ever blocked, the
 transcript is left on your clipboard and you get a notification — you never lose
 what you said.
 
-Long dictations are transcribed while you are still speaking: the recorder cuts
-a segment at each natural pause and sends it immediately, so the wait after
-releasing `fn` does not grow with how long you spoke. Turn it off with
-**Transcribe while speaking** in the menu bar to fall back to the single-shot
-path.
+Long dictations are transcribed while you are still speaking, so the wait after
+releasing `fn` does not grow with how long you spoke — see
+[Chunking](#chunking-and-why-the-wait-stays-flat). Turn it off with **Transcribe
+while speaking** in the menu bar to fall back to the single-shot path.
 
-## Cost
+The window (**Open XFlow**, or ⌘0) shows every dictation, grouped by day, with
+search and a **Show original** toggle that reveals the unformatted transcript.
 
-`whisper-large-v3-turbo` is $0.04/hour of audio and `llama-3.3-70b-versatile` costs
-fractions of a cent per dictation — roughly ₹4/hour, and plausibly ₹0 inside
-Groq's free tier of 2,000 requests/day. Groq bills a 10-second minimum per
-request, which is why segments are never shorter than that.
+## Architecture
+
+Two API calls per segment, and the segments go out while you are still talking.
+
+```mermaid
+flowchart TB
+    subgraph hold["While you hold fn"]
+        tap["AVAudioEngine tap<br/>~93 ms buffers"]
+        rms["RMS per buffer"]
+        pill["waveform on the overlay pill"]
+        vad["SilenceDetector<br/>adaptive noise floor"]
+        gate{"pause ≥ 0.6 s AND segment ≥ 10 s<br/>— or segment hits 30 s"}
+        cut["close segment, write .m4a"]
+        tap --> rms
+        rms --> pill
+        rms --> vad --> gate
+        gate -- "not yet" --> tap
+        gate -- "yes" --> cut
+    end
+
+    subgraph flight["Per segment, already in flight"]
+        stt["transcribe<br/>whisper-large-v3-turbo"]
+        clean["reformat<br/>llama-3.3-70b-versatile"]
+        check{"script survived?<br/>translated?"}
+        icu["deterministic ICU<br/>transliteration"]
+        slot["assembler[index]"]
+        stt --> clean --> check
+        check -- "clean" --> slot
+        check -- "wrong twice" --> icu --> slot
+    end
+
+    subgraph up["When you release fn"]
+        tail["transcribe the tail — the only<br/>audio nobody has seen yet"]
+        strag["await stragglers"]
+        join["assemble by index,<br/>never by completion order"]
+        paste["clipboard swap → synthetic ⌘V → restore"]
+        hist["append one line to history.jsonl"]
+        tail --> strag --> join --> paste --> hist
+    end
+
+    cut --> stt
+    cut -.-> tap
+    slot -.-> join
+```
+
+Three properties fall out of this shape:
+
+- **Nothing is lost on failure.** A segment that fails twice triggers a
+  whole-audio resend. A failed cleanup falls back to the raw transcript. A
+  blocked paste leaves the text on your clipboard with a notification.
+- **Order never depends on timing.** Segment 3 often finishes before segment 1,
+  so the assembler keys on index, not arrival.
+- **The model's output is verified, not trusted.** Cleanup is checked
+  mechanically for surviving script and for translation, with a deterministic
+  ICU fallback if both attempts fail.
+
+## Chunking, and why the wait stays flat
+
+The recorder does not wait for you to stop. It watches the RMS it is already
+computing for the waveform, and closes a segment at the first real pause:
+
+| Rule | Value | Why |
+| --- | --- | --- |
+| Pause must last | 0.6 s | Shorter is a gap between words, not a pause |
+| Segment must reach | 10 s | Groq bills a 10-second minimum, so cutting earlier pays for silence |
+| Force close at | 30 s | A speaker who never pauses still gets segmented |
+| Noise floor | adaptive, both directions | Fixed thresholds fail in a noisy room |
+
+The floor moving *slowly downward* is not a detail. When it was allowed to snap
+down to any quiet sample, it chased the silences between syllables and pinned
+itself near the global minimum, so the threshold landed below a real pause.
+Replaying four minutes of speech through both versions:
+
+| | Pauses found | Segments | Force-closed | Tail left at release |
+| --- | --- | --- | --- | --- |
+| Snap-down floor | 4 | 8 | 6 of 8 | 7.8 s |
+| Slow floor | **43** | 16 | 1 | **2.8 s** |
+
+Here is a real 94.5-second dictation from the log. Seven segments were already
+transcribed and reformatted before the key came up:
+
+```
+speak    ├──────────────────────────────────────────────────────────┤ release
+         0s                                                      94.5s
+
+segments ├─ 1 ─┤├─ 2 ─┤├─ 3 ─┤├─ 4 ─┤├─ 5 ─┤├─ 6 ─┤├─ 7 ─┤├─ tail ─┤
+               │      │      │      │      │      │      │        │
+transcribe     ▼      ▼      ▼      ▼      ▼      ▼      ▼         ▼
+             0.42s  0.43s  0.42s  0.48s  0.59s  0.45s   ...      0.45s
+               └──────┴──────┴──────┴──────┴──────┴──────┘         │
+                   all finished while you were still talking       │
+                                                                   ▼
+                                                      you wait 1.53 s
+```
+
+### Measured, on real dictations
+
+Twelve consecutive dictations, durations from 2.3 s to 94.5 s:
+
+| Spoke for | Segments | You waited |
+| --- | --- | --- |
+| 2.3 s | 1 | 1.63 s |
+| 2.7 s | 1 | 2.10 s |
+| 6.1 s | 1 | 3.19 s |
+| 6.8 s | 1 | 3.08 s |
+| 7.8 s | 1 | 1.61 s |
+| 8.2 s | 1 | 2.71 s |
+| 47.6 s | 4 | 2.17 s |
+| 57.1 s | 5 | 1.61 s |
+| 62.8 s | 6 | 2.12 s |
+| 71.4 s | 6 | 1.65 s |
+| 86.6 s | 5 | 0.94 s |
+| 94.5 s | 8 | 1.53 s |
+
+Dictations under 10 seconds averaged **2.4 s**. Dictations over 45 seconds
+averaged **1.7 s**. Speaking for forty times longer did not make you wait longer
+— the long ones were slightly *faster*, because a short dictation has no
+overlap to exploit and pays the full round trip on its only segment.
+
+Without chunking the relationship is linear and brutal: V1 took 1.96 s for a
+13-second dictation and **9.56 s** for a two-minute one.
+
+## What it costs
+
+`whisper-large-v3-turbo` is $0.04/hour of audio and `llama-3.3-70b-versatile`
+costs fractions of a cent per dictation — roughly **₹3.5/hour**. Groq bills a
+10-second minimum per request, which is why segments are never shorter than that.
+
+### The token bill, and what chunking costs you
+
+Chunking buys flat latency. It is not free, and the price is tokens.
+
+The cleanup system prompt — the rules, plus three worked examples that stop the
+model answering the speaker — measures **525 tokens**, and it is re-sent with
+*every segment*:
+
+| | Cleanup calls | Fixed prompt | Transcript + output | Total |
+| --- | --- | --- | --- | --- |
+| One call at the end | 1 | 525 | ~660 | **~1,200** |
+| Chunked, 8 segments | 8 | 4,200 | ~660 | **~4,900** |
+
+So a 94.5-second dictation costs about **4× the tokens** it would if cleanup ran
+once at the end — and buys back roughly 8 seconds of waiting. That is the trade,
+stated plainly.
+
+It matters because Groq's free tier is **100,000 tokens/day**, which works out
+to roughly 17 long dictations before cleanup starts returning `429`. The failure
+is safe — the raw transcript is used and no words are lost — but the formatting
+quietly stops. Short dictations are far cheaper per minute of speech, because
+they pay the 525-token overhead once instead of eight times.
+
+Settings, all editable from the window or with `defaults write com.aamirhannan.xflow`:
+`sttModel`, `cleanupModel`, `vocabulary`, `cleanupEnabled`, `segmentingEnabled`,
+`historyEnabled`.
+
+## Four versions, and what each one bought
+
+| | V1 | V2 | V3 | V4 (current) |
+| --- | --- | --- | --- | --- |
+| Audio sent | once, on release | while speaking | while speaking | while speaking |
+| Transcription | OpenAI `gpt-4o-transcribe` | Groq `whisper-large-v3-turbo` | OpenAI `gpt-4o-mini-transcribe` | Groq `whisper-large-v3-turbo` |
+| Cleanup | OpenAI `gpt-4o-mini` | Groq `gpt-oss-20b` → `llama-3.3-70b` | Groq `llama-3.3-70b-versatile` | Groq `llama-3.3-70b-versatile` |
+| 13 s dictation | 1.96 s | 0.92 s | ~1.48 s | ~0.9 s |
+| 126 s dictation | **9.56 s** | ~1.3 s | ~1.5 s | ~1.3 s |
+| Cost per hour | ₹32 | ₹3.5 | ₹16 | ₹3.5 |
+| API keys needed | 1 | 1 | 2 | **1** |
+| Mixed Hindi + English | works | **0 of 6** | 6 of 6 | **0 of 6** |
+
+The V1 → V2 jump is the interesting one, and not for the reason anyone assumed.
+Of V1's 9.56 seconds, transcription was 5.45 s and **cleanup was 4.11 s** — 43%
+of the wait was the text step nobody had measured. Optimising only
+speech-to-text would have left half the latency in place.
+
+V3 → V4 reverses a decision using data the app itself collected: the history
+store showed 19 of 20 real dictations were English, so the multilingual model
+became a setting rather than a default. Full reasoning in
+[notes/0002](notes/0002-versions.md).
 
 Settings, all editable from the menu bar or with `defaults write com.aamirhannan.xflow`:
 `sttModel`, `cleanupModel`, `vocabulary`, `cleanupEnabled`, `segmentingEnabled`.
@@ -141,9 +314,14 @@ error rates, which are almost entirely English-only:
 
 Two traps found the hard way:
 
-- **The vocabulary prompt helps Groq and hurts OpenAI.** The same parameter that
-  fixes Groq's acronyms pushed `gpt-4o-transcribe` into romanizing everything
-  into Devanagari. It is sent on the transcription call only, never on cleanup.
+- **The vocabulary prompt goes on the cleanup call, never on transcription.**
+  Two separate harms, found separately. It biases language detection: mixed
+  speech survived 3 of 6 runs with it, 6 of 6 without. Worse, the `prompt` field
+  is not a vocabulary list to the API — it is *previous context*, so on a
+  near-silent clip the model returned the entire list as the transcript and it
+  was pasted into a document. Segments close at pauses, so quiet tails are
+  routine. Moved to the text stage it cannot affect language detection and still
+  does its job: without it, `RBAC` came back as `ARBack` and `SOX` as `Sockets`.
 - **Never send `language=en`.** Whisper stops transcribing and starts
   translating and summarising, losing most of the content. Auto-detection is the
   only correct setting, and a check in `XFlowChecks` fails if a `language` field
@@ -157,9 +335,15 @@ Two traps found the hard way:
 | --- | --- |
 | [`CLAUDE.md`](CLAUDE.md) | Working rules: branching, verification, and the hard rules each learned from a real bug |
 | [`notes/0001-architecture.md`](notes/0001-architecture.md) | How the app works today |
-| [`notes/0002-versions.md`](notes/0002-versions.md) | V1 → V2 → V3, what changed and the measured reason |
+| [`notes/0002-versions.md`](notes/0002-versions.md) | V1 → V4, what changed and the measured reason for each |
 | [`notes/0003-findings.md`](notes/0003-findings.md) | Eight bugs with their numbers, so nobody re-derives them |
+| [`notes/0004-phase-2a-decisions.md`](notes/0004-phase-2a-decisions.md) | Why the history store stores what it does |
+| [`notes/0005-phase-2bc-decisions.md`](notes/0005-phase-2bc-decisions.md) | Why the window looks the way it does |
 | `docs/superpowers/` | Point-in-time specs and plans. Historical, partly superseded. |
+
+If you only read one, read
+[`notes/0003-findings.md`](notes/0003-findings.md). Every bug in it was expensive
+to find and is cheap to re-introduce.
 
 ## Development
 
