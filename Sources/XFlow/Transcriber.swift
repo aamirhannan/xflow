@@ -61,7 +61,7 @@ struct Transcriber {
         return (URLSession(configuration: config, delegate: metrics, delegateQueue: nil), metrics)
     }
 
-    func transcribe(fileURL: URL) async throws -> String {
+    func transcribe(fileURL: URL) async throws -> Transcript {
         guard let sttKey = Keychain.openAIKey, let cleanupKey = Keychain.groqKey else {
             throw XFlowError.noAPIKey
         }
@@ -86,7 +86,7 @@ struct Transcriber {
             decode: Transcription.decode
         )
 
-        guard Settings.cleanupEnabled else { return transcript }
+        guard Settings.cleanupEnabled else { return Transcript(raw: transcript, cleaned: transcript) }
 
         // A failed cleanup must not lose the transcript. Devanagari beats nothing.
         do {
@@ -113,7 +113,9 @@ struct Transcriber {
                 return nil
             }
 
-            guard let problem = isWrong(cleaned) else { return cleaned }
+            guard let problem = isWrong(cleaned) else {
+                return Transcript(raw: transcript, cleaned: cleaned)
+            }
 
             log.notice("cleanup \(problem, privacy: .public), retrying once")
             let retried = try await send(
@@ -127,7 +129,7 @@ struct Transcriber {
                 on: session,
                 decode: Groq.decodeCleanup
             )
-            if isWrong(retried) == nil { return retried }
+            if isWrong(retried) == nil { return Transcript(raw: transcript, cleaned: retried) }
 
             // Both attempts were wrong. ICU transliteration is less natural than
             // the model at its best, but it is deterministic: it can never
@@ -135,9 +137,9 @@ struct Transcriber {
             // prettiness when the alternative is a transcript that is half
             // romanized and half Devanagari.
             log.notice("cleanup unreliable twice, falling back to deterministic transliteration")
-            return Script.romanize(transcript)
+            return Transcript(raw: transcript, cleaned: Script.romanize(transcript))
         } catch {
-            return transcript
+            return Transcript(raw: transcript, cleaned: transcript)
         }
     }
 
