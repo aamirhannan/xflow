@@ -5,16 +5,20 @@ import Security
 /// never reach UserDefaults, a file, a log line, or a commit.
 enum Keychain {
     private static let service = "com.aamirhannan.xflow"
-    // v1 stored an OpenAI key under "openai". Groq keys live under their own
-    // account, so an old key is simply ignored rather than sent to the wrong host.
-    private static let account = "groq"
-
-    static var apiKey: String? {
-        get { read() }
-        set { newValue.map(write) ?? delete() }
+    // Two providers, two keys: transcription runs on OpenAI because it is the
+    // only model that keeps Hindi and English both intact in one sentence;
+    // cleanup runs on Groq because it is far faster and cheaper for formatting.
+    static var openAIKey: String? {
+        get { read(account: "openai") }
+        set { newValue.map { write($0, account: "openai") } ?? delete(account: "openai") }
     }
 
-    private static func read() -> String? {
+    static var groqKey: String? {
+        get { read(account: "groq") }
+        set { newValue.map { write($0, account: "groq") } ?? delete(account: "groq") }
+    }
+
+    private static func read(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -31,8 +35,8 @@ enum Keychain {
         return key
     }
 
-    private static func write(_ key: String) {
-        delete()
+    private static func write(_ key: String, account: String) {
+        delete(account: account)
         let attributes: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -42,7 +46,7 @@ enum Keychain {
         SecItemAdd(attributes as CFDictionary, nil)
     }
 
-    private static func delete() {
+    private static func delete(account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

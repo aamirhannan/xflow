@@ -32,12 +32,13 @@ final class PermissionsWindow: NSObject, NSWindowDelegate {
     private let stack = NSStackView()
     private let keyField = NSSecureTextField()
     private let vocabularyField = NSTextField()
+    private let groqField = NSSecureTextField()
     private var rows: [(label: String, status: NSTextField, check: () -> Bool)] = []
     private var refreshTimer: Timer?
 
     override init() {
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 680),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -62,10 +63,10 @@ final class PermissionsWindow: NSObject, NSWindowDelegate {
         )
 
         stack.addArrangedSubview(separator())
-        stack.addArrangedSubview(heading("Groq API key"))
+        stack.addArrangedSubview(heading("OpenAI API key"))
 
-        keyField.placeholderString = "gsk_…"
-        keyField.stringValue = Keychain.apiKey ?? ""
+        keyField.placeholderString = "sk-…"
+        keyField.stringValue = Keychain.openAIKey ?? ""
         keyField.target = self
         keyField.action = #selector(saveKey)
         keyField.widthAnchor.constraint(equalToConstant: 400).isActive = true
@@ -75,6 +76,20 @@ final class PermissionsWindow: NSObject, NSWindowDelegate {
         stack.addArrangedSubview(save)
 
         stack.addArrangedSubview(caption("Stored in your macOS Keychain, never on disk. Get one at console.groq.com/keys"))
+
+        stack.addArrangedSubview(separator())
+        stack.addArrangedSubview(heading("Groq API key"))
+        groqField.placeholderString = "gsk_…"
+        groqField.stringValue = Keychain.groqKey ?? ""
+        groqField.target = self
+        groqField.action = #selector(saveGroqKey)
+        groqField.widthAnchor.constraint(equalToConstant: 400).isActive = true
+        stack.addArrangedSubview(groqField)
+        stack.addArrangedSubview(NSButton(title: "Save Groq key", target: self, action: #selector(saveGroqKey)))
+        stack.addArrangedSubview(caption(
+            "Transcription runs on OpenAI because it is the only model that keeps Hindi and "
+            + "English both intact in one sentence. Formatting runs on Groq, which is far faster."
+        ))
 
         stack.addArrangedSubview(separator())
         stack.addArrangedSubview(heading("Vocabulary"))
@@ -130,7 +145,12 @@ final class PermissionsWindow: NSObject, NSWindowDelegate {
 
     @objc private func saveKey() {
         let value = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        Keychain.apiKey = value.isEmpty ? nil : value
+        Keychain.openAIKey = value.isEmpty ? nil : value
+    }
+
+    @objc private func saveGroqKey() {
+        let value = groqField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        Keychain.groqKey = value.isEmpty ? nil : value
     }
 
     @objc private func saveVocabulary() {

@@ -62,7 +62,9 @@ struct Transcriber {
     }
 
     func transcribe(fileURL: URL) async throws -> String {
-        guard let apiKey = Keychain.apiKey else { throw XFlowError.noAPIKey }
+        guard let sttKey = Keychain.openAIKey, let cleanupKey = Keychain.groqKey else {
+            throw XFlowError.noAPIKey
+        }
         let (session, _) = makeSession()
         defer { session.finishTasksAndInvalidate() }
         let audio = try Data(contentsOf: fileURL)
@@ -74,15 +76,15 @@ struct Transcriber {
         log.notice("clip read: inMemory=\(audio.count, privacy: .public)B onDisk=\(onDisk ?? -1, privacy: .public)B")
 
         let transcript = try await send(
-            Groq.transcriptionRequest(
-                apiKey: apiKey,
+            Transcription.request(
+                apiKey: sttKey,
                 model: Settings.sttModel,
                 audio: audio,
                 filename: fileURL.lastPathComponent,
                 vocabulary: Settings.vocabulary
             ),
             on: session,
-            decode: Groq.decodeTranscript
+            decode: Transcription.decode
         )
 
         guard Settings.cleanupEnabled else { return transcript }
@@ -91,7 +93,7 @@ struct Transcriber {
         do {
             let cleaned = try await send(
                 Groq.cleanupRequest(
-                    apiKey: apiKey,
+                    apiKey: cleanupKey,
                     model: Settings.cleanupModel,
                     transcript: transcript
                 ),
@@ -116,7 +118,7 @@ struct Transcriber {
             log.notice("cleanup \(problem, privacy: .public), retrying once")
             let retried = try await send(
                 Groq.cleanupRetryRequest(
-                    apiKey: apiKey,
+                    apiKey: cleanupKey,
                     model: Settings.cleanupModel,
                     transcript: transcript,
                     firstAttempt: cleaned

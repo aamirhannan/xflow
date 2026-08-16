@@ -3,24 +3,28 @@ import XFlowCore
 
 func checkGroq() {
     let audio = Data([0xDE, 0xAD, 0xBE, 0xEF])
-    let request = Groq.transcriptionRequest(
-        apiKey: "gsk-test", model: Groq.defaultSTTModel,
+    let request = Transcription.request(
+        apiKey: "gsk-test", model: Transcription.defaultModel,
         audio: audio, filename: "clip.m4a",
         vocabulary: "RBAC, SOX", boundary: "B"
     )
 
     Checks.equal(request.url?.absoluteString,
+                 "https://api.openai.com/v1/audio/transcriptions",
+                 "transcription targets openai, the only model that keeps hindi and english both")
+    Checks.equal(Transcription.defaultModel, "gpt-4o-mini-transcribe", "stt model is 4o-mini-transcribe")
+    // Whisper model ids must still route to Groq, so switching back is one setting.
+    Checks.equal(Transcription.endpoint(for: "whisper-large-v3-turbo").absoluteString,
                  "https://api.groq.com/openai/v1/audio/transcriptions",
-                 "transcription targets the groq endpoint")
+                 "whisper models still route to groq")
     Checks.equal(request.httpMethod, "POST", "transcription is a POST")
     Checks.equal(request.value(forHTTPHeaderField: "Authorization"), "Bearer gsk-test",
                  "transcription carries the bearer token")
-    Checks.equal(Groq.defaultSTTModel, "whisper-large-v3-turbo", "stt model is turbo")
     Checks.equal(Groq.defaultCleanupModel, "llama-3.3-70b-versatile", "cleanup model is llama 70b")
 
     let body = String(data: request.httpBody!, encoding: .isoLatin1)!
     Checks.check(request.httpBody!.range(of: audio) != nil, "body carries the audio bytes")
-    Checks.check(body.contains("whisper-large-v3-turbo"), "body names the model")
+    Checks.check(body.contains("gpt-4o-mini-transcribe"), "body names the model")
     Checks.check(body.contains("name=\"prompt\""), "body carries the vocabulary prompt")
     Checks.check(body.contains("RBAC, SOX"), "body carries the vocabulary terms")
 
@@ -28,8 +32,8 @@ func checkGroq() {
     // instead of transcribing and lost most of the content. It must never be sent.
     Checks.check(!body.contains("name=\"language\""), "transcription never sends a language field")
 
-    let noVocab = Groq.transcriptionRequest(
-        apiKey: "gsk-test", model: Groq.defaultSTTModel,
+    let noVocab = Transcription.request(
+        apiKey: "gsk-test", model: Transcription.defaultModel,
         audio: audio, filename: "clip.m4a", vocabulary: "   ", boundary: "B"
     )
     let noVocabBody = String(data: noVocab.httpBody!, encoding: .isoLatin1)!
@@ -52,13 +56,13 @@ func checkGroq() {
     Checks.equal(messages[1]["content"], CleanupPrompt.wrap("hello there"),
                  "user message is the transcript, wrapped in the delimiter")
 
-    Checks.equal(try? Groq.decodeTranscript(Data(#"{"text":"  mujhe yeh chahiye  "}"#.utf8)),
+    Checks.equal(try? Transcription.decode(Data(#"{"text":"  mujhe yeh chahiye  "}"#.utf8)),
                  "mujhe yeh chahiye", "transcript is decoded and trimmed")
     Checks.throwsError(XFlowError.emptyTranscript, "blank transcript is an empty transcript error") {
-        _ = try Groq.decodeTranscript(Data(#"{"text":"   "}"#.utf8))
+        _ = try Transcription.decode(Data(#"{"text":"   "}"#.utf8))
     }
     Checks.throwsError(XFlowError.decoding, "malformed transcript body is a decoding error") {
-        _ = try Groq.decodeTranscript(Data("not json".utf8))
+        _ = try Transcription.decode(Data("not json".utf8))
     }
     Checks.equal(try? Groq.decodeCleanup(Data(#"{"choices":[{"message":{"content":"Mujhe yeh chahiye.\n"}}]}"#.utf8)),
                  "Mujhe yeh chahiye.", "cleanup response is decoded and trimmed")

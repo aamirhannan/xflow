@@ -3,58 +3,18 @@ import Foundation
 /// Request construction and response decoding only. No URLSession here, so all
 /// of it is checkable without a network or a mock server.
 ///
-/// Groq's endpoints are OpenAI-compatible in shape, which is why the request
-/// bodies look familiar. `openai/gpt-oss-20b` is a Groq-hosted model whose ID
-/// carries an `openai/` prefix — it is not a call to OpenAI.
+/// Groq handles the cleanup pass only; transcription lives in Transcription.swift
+/// because only OpenAI's model keeps Hindi and English intact in one sentence.
 public enum Groq {
-    public static let transcriptionURL =
-        URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!
     public static let chatURL =
         URL(string: "https://api.groq.com/openai/v1/chat/completions")!
 
-    /// Benchmarked on real Hinglish speech: turbo beat both whisper-large-v3 and
-    /// gpt-4o-transcribe on accuracy, at 15x the speed of the latter.
-    /// whisper-large-v3 also returned HTTP 500 repeatedly on a 983KB file.
-    public static let defaultSTTModel = "whisper-large-v3-turbo"
-    /// NOT a reasoning model, on purpose. `openai/gpt-oss-20b` reasons before
-    /// answering and, on real transcripts, burned its entire completion budget
-    /// on reasoning and returned empty content with finish_reason=length —
-    /// still HTTP 200. Raising max_completion_tokens to 8000 did not help.
-    /// `llama-3.1-8b-instant` answered but appended meta-commentary about what
-    /// it had done and translated English phrases into Hinglish. 70b returned
-    /// exactly the input word count, verbatim English, in the same 0.73s.
+    /// NOT a reasoning model, on purpose. `openai/gpt-oss-20b` reasoned until it
+    /// exhausted its budget and returned empty content with HTTP 200.
+    /// `llama-3.1-8b-instant` appended meta-commentary about its own edits and
+    /// translated English into Hinglish. 70b returned exactly the input word
+    /// count, verbatim English, in 0.73s.
     public static let defaultCleanupModel = "llama-3.3-70b-versatile"
-
-    public static func transcriptionRequest(
-        apiKey: String,
-        model: String,
-        audio: Data,
-        filename: String,
-        vocabulary: String,
-        boundary: String = "xflow-\(UUID().uuidString)"
-    ) -> URLRequest {
-        var body = MultipartBody(boundary: boundary)
-        body.addField(name: "model", value: model)
-
-        // The vocabulary prompt is what makes Groq win: without it "risk owner"
-        // came back as "response और" and SOX as "शॉक्स". Sent only when it has
-        // content — an empty prompt field is worse than no prompt field.
-        let terms = vocabulary.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !terms.isEmpty { body.addField(name: "prompt", value: terms) }
-
-        // NO `language` FIELD. EVER. With language=en, Whisper stopped
-        // transcribing and started translating and summarising, destroying most
-        // of the content. Auto-detection is the only correct setting here.
-
-        body.addFile(name: "file", filename: filename, contentType: "audio/m4a", data: audio)
-
-        var request = URLRequest(url: transcriptionURL)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue(body.contentType, forHTTPHeaderField: "Content-Type")
-        request.httpBody = body.finished
-        return request
-    }
 
     public static func cleanupRequest(apiKey: String, model: String, transcript: String) -> URLRequest {
         let payload: [String: Any] = [
@@ -105,16 +65,6 @@ public enum Groq {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         return request
-    }
-
-    public static func decodeTranscript(_ data: Data) throws -> String {
-        struct Response: Decodable { let text: String }
-        guard let response = try? JSONDecoder().decode(Response.self, from: data) else {
-            throw XFlowError.decoding
-        }
-        let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw XFlowError.emptyTranscript }
-        return text
     }
 
     public static func decodeCleanup(_ data: Data) throws -> String {

@@ -9,14 +9,14 @@ enum Settings {
     /// One-time migration: v1 stored OpenAI model names, which Groq does not
     /// host. Clearing them lets the new defaults apply.
     static func migrateFromV1() {
-        guard defaults.object(forKey: "didMigrateToGroq") == nil else { return }
+        guard defaults.object(forKey: "didMigrateToSplitProviders") == nil else { return }
         defaults.removeObject(forKey: "sttModel")
         defaults.removeObject(forKey: "cleanupModel")
-        defaults.set(true, forKey: "didMigrateToGroq")
+        defaults.set(true, forKey: "didMigrateToSplitProviders")
     }
 
     static var sttModel: String {
-        get { defaults.string(forKey: "sttModel") ?? Groq.defaultSTTModel }
+        get { defaults.string(forKey: "sttModel") ?? Transcription.defaultModel }
         set { defaults.set(newValue, forKey: "sttModel") }
     }
 

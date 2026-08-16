@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task {
             _ = await Recorder.requestMicrophoneAccess()
-            if !Permissions.allGranted || Keychain.apiKey == nil {
+            if !Permissions.allGranted || Keychain.openAIKey == nil || Keychain.groqKey == nil {
                 await MainActor.run { self.permissionsWindow.show() }
             }
         }
