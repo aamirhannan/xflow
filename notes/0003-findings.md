@@ -148,9 +148,22 @@ destroyed, not just re-scripted. Never send it.
 **Trap B — `language=hi` writes the speaker's English in Devanagari.** Also never
 send it. Auto-detection only.
 
-**Trap C — the vocabulary prompt biases language detection.** Those 14 English
-terms on the *audio* request halved code-switching survival. Moved to the
-*cleanup* call it cannot affect what language is heard, and still does its job:
+**Trap C — the vocabulary prompt does three kinds of damage.** `prompt` is not a
+vocabulary list to the API. It is *previous context*: the model is told this text
+came immediately before the audio, and continues from it. Sending those 14 terms
+on the audio request:
+
+1. **Biased language detection** — mixed Hindi survived 3 of 6 runs, not 6 of 6.
+2. **Leaked verbatim into the transcript on quiet audio.** Three seconds of
+   silence returned `RBAC, SOX, RACM, risk owner, auditor, engagement, control,
+   internal audit, super admin, screen, scope, dashboard...` as the transcript,
+   which then got pasted into the user's document. Reproduces every time; without
+   the prompt the same silence returns empty. This matters in normal use because
+   segments close *at pauses*, so a near-silent tail is routine.
+3. **Pushed `gpt-4o-transcribe` into romanizing everything into Devanagari** —
+   the very first benchmark of the project.
+
+Moved to the *cleanup* call it can reach none of those, and still does its job:
 without the hint the transcript said `ARBack` and `Sockets`; with it, `RBAC` and
 `SOX`.
 

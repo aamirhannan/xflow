@@ -5,8 +5,7 @@ func checkGroq() {
     let audio = Data([0xDE, 0xAD, 0xBE, 0xEF])
     let request = Transcription.request(
         apiKey: "gsk-test", model: Transcription.defaultModel,
-        audio: audio, filename: "clip.m4a",
-        vocabulary: "RBAC, SOX", boundary: "B"
+        audio: audio, filename: "clip.m4a", boundary: "B"
     )
 
     Checks.equal(request.url?.absoluteString,
@@ -25,20 +24,30 @@ func checkGroq() {
     let body = String(data: request.httpBody!, encoding: .isoLatin1)!
     Checks.check(request.httpBody!.range(of: audio) != nil, "body carries the audio bytes")
     Checks.check(body.contains("gpt-4o-mini-transcribe"), "body names the model")
-    Checks.check(body.contains("name=\"prompt\""), "body carries the vocabulary prompt")
-    Checks.check(body.contains("RBAC, SOX"), "body carries the vocabulary terms")
+    // Regression guard, three measured harms behind it. The `prompt` field is not
+    // a vocabulary list to the API — it is previous context, and the model
+    // continues from it. Sending those 14 English terms on the audio request:
+    //   1. biased language detection: mixed hindi survived 3 of 6 runs, not 6 of 6
+    //   2. leaked verbatim into the transcript on near-silent audio, pasting
+    //      "RBAC, SOX, RACM, risk owner, ..." into the user's document
+    //   3. pushed gpt-4o-transcribe into romanizing everything into devanagari
+    // Vocabulary belongs on the cleanup call, where it can reach neither.
+    Checks.check(!body.contains("name=\"prompt\""),
+                 "the audio request never carries a vocabulary prompt")
+    Checks.check(!body.contains("RBAC"),
+                 "no vocabulary term can reach the audio request by any route")
 
     // Regression guard. With language=en, Whisper translated and summarised
     // instead of transcribing and lost most of the content. It must never be sent.
     Checks.check(!body.contains("name=\"language\""), "transcription never sends a language field")
 
-    let noVocab = Transcription.request(
-        apiKey: "gsk-test", model: Transcription.defaultModel,
-        audio: audio, filename: "clip.m4a", vocabulary: "   ", boundary: "B"
-    )
-    let noVocabBody = String(data: noVocab.httpBody!, encoding: .isoLatin1)!
-    Checks.check(!noVocabBody.contains("name=\"prompt\""),
-                 "blank vocabulary omits the prompt field entirely")
+    // Vocabulary now rides on the cleanup system prompt instead.
+    let withVocab = CleanupPrompt.system(vocabulary: "RBAC, SOX")
+    Checks.check(withVocab.contains("RBAC, SOX"), "cleanup prompt carries the vocabulary terms")
+    Checks.check(withVocab.contains("restore its correct spelling"),
+                 "cleanup prompt explains what to do with them")
+    Checks.equal(CleanupPrompt.system(vocabulary: "   "), CleanupPrompt.system,
+                 "blank vocabulary leaves the cleanup prompt untouched")
 
     let cleanup = Groq.cleanupRequest(
         apiKey: "gsk-test", model: Groq.defaultCleanupModel, transcript: "hello there"
