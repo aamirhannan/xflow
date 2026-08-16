@@ -38,21 +38,33 @@ private final class MetricsLogger: NSObject, URLSessionTaskDelegate {
 
 /// Audio file in, finished text out. Owns both API calls and the retry policy.
 struct Transcriber {
-    private let session: URLSession
-    private let metrics = MetricsLogger()
-
-    init() {
+    /// A fresh session per dictation, never one shared for the app's lifetime.
+    ///
+    /// URLSession talks to OpenAI over HTTP/3, which is QUIC over UDP, and it
+    /// pools those connections. NAT tables drop idle UDP mappings after roughly
+    /// 30 seconds, and unlike TCP there is no reset packet to announce the death
+    /// — so a reused QUIC connection looks alive and simply never transmits.
+    /// Metrics on every failure showed exactly that: reused=true, bodySent=0,
+    /// and every phase timestamp missing, until the inactivity timeout fired.
+    ///
+    /// Both API legs share this session, so the second call reuses a connection
+    /// that is seconds old and provably alive. The cost is one extra handshake
+    /// per dictation: dns 14ms + connect 48ms + tls 47ms, measured.
+    private func makeSession() -> (URLSession, MetricsLogger) {
         let config = URLSessionConfiguration.default
         // Inactivity budget. Measured latency is ~1.5s for a 15s clip and ~13s
         // for a 4-minute one, so 15s of no data movement means something is
         // wrong, not slow. Paired with a hard ceiling on the whole transfer.
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 60
-        session = URLSession(configuration: config, delegate: metrics, delegateQueue: nil)
+        let metrics = MetricsLogger()
+        return (URLSession(configuration: config, delegate: metrics, delegateQueue: nil), metrics)
     }
 
     func transcribe(fileURL: URL) async throws -> String {
         guard let apiKey = Keychain.apiKey else { throw XFlowError.noAPIKey }
+        let (session, _) = makeSession()
+        defer { session.finishTasksAndInvalidate() }
         let audio = try Data(contentsOf: fileURL)
 
         // Catches a truncated clip: AVAudioRecorder.stop() closing the file is
@@ -68,6 +80,7 @@ struct Transcriber {
                 audio: audio,
                 filename: fileURL.lastPathComponent
             ),
+            on: session,
             decode: OpenAI.decodeTranscript
         )
 
@@ -81,6 +94,7 @@ struct Transcriber {
                     model: Settings.cleanupModel,
                     transcript: transcript
                 ),
+                on: session,
                 decode: OpenAI.decodeCleanup
             )
         } catch {
@@ -90,16 +104,20 @@ struct Transcriber {
 
     /// One retry on transient failures, then give up. Backoff is a flat 800ms —
     /// this is a single interactive request, not a queue worth exponential care.
-    private func send(_ request: URLRequest, decode: (Data) throws -> String) async throws -> String {
+    private func send(
+        _ request: URLRequest, on session: URLSession, decode: (Data) throws -> String
+    ) async throws -> String {
         do {
-            return try await attempt(request, decode: decode)
+            return try await attempt(request, on: session, decode: decode)
         } catch let error as XFlowError where error.isRetryable {
             try? await Task.sleep(nanoseconds: 800_000_000)
-            return try await attempt(request, decode: decode)
+            return try await attempt(request, on: session, decode: decode)
         }
     }
 
-    private func attempt(_ request: URLRequest, decode: (Data) throws -> String) async throws -> String {
+    private func attempt(
+        _ request: URLRequest, on session: URLSession, decode: (Data) throws -> String
+    ) async throws -> String {
         let leg = request.url?.lastPathComponent ?? "?"
         let sent = request.httpBody?.count ?? 0
         let start = Date()
