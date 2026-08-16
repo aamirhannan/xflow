@@ -67,3 +67,60 @@ func checkHistoryLog() {
         0, "empty text has no words"
     )
 }
+
+func checkHistoryStore() {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("xflow-history-checks-\(UUID().uuidString)", isDirectory: true)
+    let fileURL = directory.appendingPathComponent("history.jsonl")
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    // Non-optional on purpose: passing an optional and a literal to the generic
+    // Checks.equal makes type inference ambiguous.
+    func mode(of url: URL) -> Int {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return (attributes?[.posixPermissions] as? NSNumber)?.intValue ?? 0
+    }
+
+    let store = HistoryStore(fileURL: fileURL)
+
+    Checks.equal(store.all(), [], "a store with no file yet reads as empty, not an error")
+
+    let first = DictationRecord(durationSeconds: 5, rawText: "one", cleanedText: "One.")
+    let second = DictationRecord(durationSeconds: 6, rawText: "two", cleanedText: "Two.")
+    // record() is asynchronous, but all() is synchronous on the same serial
+    // queue, so it always observes the writes queued ahead of it.
+    store.record(first)
+    store.record(second)
+
+    Checks.equal(store.all().map(\.id), [second.id, first.id],
+                 "both records are readable, newest first")
+
+    // The store's whole privacy story rests on this mode.
+    Checks.equal(mode(of: fileURL), 0o600, "the history file is readable only by its owner")
+
+    // Simulate a write interrupted mid-line, which is the only corruption an
+    // append-only file can suffer.
+    if let handle = try? FileHandle(forWritingTo: fileURL) {
+        // `try?` wraps the offset seekToEnd() returns, which defeats its
+        // @discardableResult — hence the explicit discard.
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: Data("{\"id\":\"tru".utf8))
+        try? handle.close()
+    }
+    Checks.equal(store.all().count, 2, "a torn final line does not cost more than its own record")
+
+    store.delete(id: first.id)
+    Checks.equal(store.all().map(\.id), [second.id],
+                 "deleting one record leaves exactly the others")
+
+    // Rewriting must not silently widen the file's permissions: an atomic write
+    // replaces the file, and the replacement does not inherit its mode.
+    Checks.equal(mode(of: fileURL), 0o600, "a rewrite keeps the owner-only mode")
+
+    store.deleteAll()
+    Checks.equal(store.all(), [], "deleting everything empties the history")
+
+    // The store must survive being used again after its file is gone.
+    store.record(first)
+    Checks.equal(store.all().count, 1, "recording recreates the file after a delete-all")
+}
