@@ -88,3 +88,28 @@ func checkVocabularyPrompt() {
     // A prompt is a bias, not a dictionary — an enormous one degrades results.
     Checks.check(terms.count < 900, "default vocabulary stays short enough to bias, not dominate")
 }
+
+func checkScript() {
+    // The guard that makes transliteration a guarantee rather than a hope.
+    Checks.equal(Script.containsNonLatin("Yahan pe to bhai, mujhe consistency chahiye."), false,
+                 "fully romanized text is accepted")
+    Checks.equal(Script.containsNonLatin("यहाँ पे तो भई, मुझे consistency चाहिए"), true,
+                 "the exact input that survived cleanup 6 of 6 times is caught")
+    Checks.equal(Script.containsNonLatin("hello there"), false, "plain english is accepted")
+    Checks.equal(Script.containsNonLatin("mixed मुझे english"), true,
+                 "a single devanagari word anywhere is caught")
+    Checks.equal(Script.containsNonLatin("یہ اردو ہے"), true, "urdu is caught too")
+    Checks.equal(Script.containsNonLatin(""), false, "empty text has nothing to catch")
+
+    // The retry continues the same conversation so the model sees its own output.
+    let retry = Groq.cleanupRetryRequest(
+        apiKey: "gsk-test", model: Groq.defaultCleanupModel,
+        transcript: "मुझे यह चाहिए", firstAttempt: "मुझे यह चाहिए."
+    )
+    let json = try! JSONSerialization.jsonObject(with: retry.httpBody!) as! [String: Any]
+    let messages = json["messages"] as! [[String: String]]
+    Checks.equal(messages.count, 4, "the retry replays system, user, assistant, then the correction")
+    Checks.equal(messages[2]["role"], "assistant", "the failed attempt is replayed back to the model")
+    Checks.equal(messages[2]["content"], "मुझे यह चाहिए.", "the retry shows the model its own output")
+    Checks.equal(messages[3]["content"], Groq.retryInstruction, "the correction is the last turn")
+}

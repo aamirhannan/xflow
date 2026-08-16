@@ -89,7 +89,7 @@ struct Transcriber {
 
         // A failed cleanup must not lose the transcript. Devanagari beats nothing.
         do {
-            return try await send(
+            let cleaned = try await send(
                 Groq.cleanupRequest(
                     apiKey: apiKey,
                     model: Settings.cleanupModel,
@@ -98,6 +98,26 @@ struct Transcriber {
                 on: session,
                 decode: Groq.decodeCleanup
             )
+
+            // The prompt asks for transliteration; this checks that it happened.
+            // Segments are cleaned by independent calls, so without this one
+            // segment could come back romanized and the next left in Devanagari
+            // — the same dictation, two different scripts.
+            guard Script.containsNonLatin(cleaned) else { return cleaned }
+
+            log.notice("cleanup left non-latin script, retrying once")
+            let retried = try await send(
+                Groq.cleanupRetryRequest(
+                    apiKey: apiKey,
+                    model: Settings.cleanupModel,
+                    transcript: transcript,
+                    firstAttempt: cleaned
+                ),
+                on: session,
+                decode: Groq.decodeCleanup
+            )
+            // If it still refuses, the cleaned text beats losing the words.
+            return Script.containsNonLatin(retried) ? cleaned : retried
         } catch {
             return transcript
         }

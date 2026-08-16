@@ -75,6 +75,38 @@ public enum Groq {
         return request
     }
 
+    /// Sent when the first cleanup left non-Latin script behind. Continuing the
+    /// same conversation (rather than starting a fresh one) is what makes it
+    /// work: the model sees its own output and corrects it. Measured to fix the
+    /// input that failed 6 of 6 times on the first pass.
+    public static let retryInstruction = """
+    The text still contains non-Latin script. Rewrite it so that EVERY word is \
+    written in Latin letters. Transliterate, do not translate: keep the same \
+    words, only change the alphabet. Output only the rewritten text.
+    """
+
+    public static func cleanupRetryRequest(
+        apiKey: String, model: String, transcript: String, firstAttempt: String
+    ) -> URLRequest {
+        let payload: [String: Any] = [
+            "model": model,
+            "temperature": 0,
+            "messages": [
+                ["role": "system", "content": CleanupPrompt.system],
+                ["role": "user", "content": CleanupPrompt.wrap(transcript)],
+                ["role": "assistant", "content": firstAttempt],
+                ["role": "user", "content": retryInstruction],
+            ],
+        ]
+
+        var request = URLRequest(url: chatURL)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        return request
+    }
+
     public static func decodeTranscript(_ data: Data) throws -> String {
         struct Response: Decodable { let text: String }
         guard let response = try? JSONDecoder().decode(Response.self, from: data) else {
