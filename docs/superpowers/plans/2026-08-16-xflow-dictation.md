@@ -393,7 +393,7 @@ rm Sources/XFlowCore/Placeholder.swift
 - [ ] **Step 5: Run the checks to verify they pass**
 
 Run: `swift run XFlowChecks`
-Expected: `✅ 15 checks passed`.
+Expected: all checks pass — `✅ N checks passed`, with no failures listed. The exact N grows as groups are added; zero failures is what matters.
 
 - [ ] **Step 6: Commit**
 
@@ -516,7 +516,7 @@ public struct MultipartBody {
 - [ ] **Step 4: Run the checks to verify they pass**
 
 Run: `swift run XFlowChecks`
-Expected: `✅ 22 checks passed`.
+Expected: all checks pass — `✅ N checks passed`, with no failures listed. The exact N grows as groups are added; zero failures is what matters.
 
 - [ ] **Step 5: Commit**
 
@@ -639,7 +639,7 @@ public enum XFlowError: Error, Equatable, Sendable {
 - [ ] **Step 4: Run the checks to verify they pass**
 
 Run: `swift run XFlowChecks`
-Expected: `✅ 39 checks passed`.
+Expected: all checks pass — `✅ N checks passed`, with no failures listed. The exact N grows as groups are added; zero failures is what matters.
 
 - [ ] **Step 5: Commit**
 
@@ -717,7 +717,7 @@ public enum CleanupPrompt {
 - [ ] **Step 4: Run the checks to verify they pass**
 
 Run: `swift run XFlowChecks`
-Expected: `✅ 42 checks passed`.
+Expected: all checks pass — `✅ N checks passed`, with no failures listed. The exact N grows as groups are added; zero failures is what matters.
 
 - [ ] **Step 5: Commit**
 
@@ -891,7 +891,7 @@ public enum OpenAI {
 - [ ] **Step 4: Run the checks to verify they pass**
 
 Run: `swift run XFlowChecks`
-Expected: `✅ 57 checks passed`.
+Expected: all checks pass — `✅ N checks passed`, with no failures listed. The exact N grows as groups are added; zero failures is what matters.
 
 - [ ] **Step 5: Commit**
 
@@ -994,7 +994,7 @@ public struct ClipboardSwap {
 - [ ] **Step 4: Run the checks to verify they pass**
 
 Run: `swift run XFlowChecks`
-Expected: `✅ 61 checks passed`.
+Expected: all checks pass — `✅ N checks passed`, with no failures listed. The exact N grows as groups are added; zero failures is what matters.
 
 - [ ] **Step 5: Commit**
 
