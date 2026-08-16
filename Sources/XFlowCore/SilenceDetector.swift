@@ -10,10 +10,16 @@ public struct SilenceDetector {
     /// Silence threshold as a multiple of the observed noise floor.
     public let sensitivity: Float
 
-    /// ponytail: the floor tracks a decaying minimum rather than running a real
-    /// noise estimator. Room tone, mic gain and background chatter all move the
-    /// true floor, and a fixed dB threshold is wrong on every machine. Replace
-    /// with a proper VAD only if this misfires in practice.
+    /// How fast the floor follows the level down. Deliberately slow: the floor
+    /// must not be able to chase a pause downward within `pauseDuration`.
+    private let descentRate: Float = 0.02
+    /// Slower still going up, so one loud moment does not raise the bar.
+    private let ascentRate: Float = 0.0005
+
+    /// ponytail: an exponential tracker rather than a real noise estimator. Room
+    /// tone, mic gain and background chatter all move the true floor, and a
+    /// fixed dB threshold is wrong on every machine. Replace with a proper VAD
+    /// only if this misfires in practice.
     public private(set) var noiseFloor: Float
 
     private var quietSince: TimeInterval?
@@ -33,9 +39,16 @@ public struct SilenceDetector {
     /// becomes confirmed, and false everywhere else — including for the rest of
     /// that same pause, so a caller cannot close two segments on one silence.
     public mutating func feed(rms: Float, at time: TimeInterval) -> Bool {
-        // Drift up slowly so a room that gets noisier is tracked; snap down
-        // immediately so a room that goes quiet is tracked at once.
-        noiseFloor = max(0.0005, min(noiseFloor * 1.0005, max(rms, 0.0005)))
+        // Move slowly in BOTH directions.
+        //
+        // The original version snapped the floor straight down to any quiet
+        // sample. Speech is full of near-silent gaps between syllables, so the
+        // floor collapsed to the global minimum and the threshold ended up
+        // *below* the level of a genuine pause — real pauses read as loud.
+        // Measured on 4 minutes of real speech: 4 pauses found instead of 43,
+        // which left the 30s force-close doing all the segmenting.
+        let rate = rms < noiseFloor ? descentRate : ascentRate
+        noiseFloor = max(0.0005, noiseFloor + (rms - noiseFloor) * rate)
 
         guard rms < noiseFloor * sensitivity else {
             quietSince = nil

@@ -41,6 +41,24 @@ func checkSilenceDetector() {
     }
     Checks.equal(firedAfterResume, true, "the detector re-arms after speech resumes")
 
+    // Regression guard for the bug that made segmentation fall back on its
+    // 30-second safety net. Speech contains near-silent gaps between syllables.
+    // If the noise floor is allowed to snap down to those gaps, it collapses to
+    // the global minimum and the threshold lands BELOW the level of a real
+    // pause — so genuine pauses read as loud and never close a segment.
+    // Here the pause (0.02) is deliberately louder than the inter-syllable
+    // gaps (0.004): the old snap-down floor found zero pauses in this sequence.
+    var syllables = SilenceDetector(pauseDuration: 0.6, sensitivity: 3, initialFloor: 0.01)
+    for i in 0..<60 {
+        _ = syllables.feed(rms: i % 2 == 0 ? 0.15 : 0.004, at: Double(i) * 0.05)
+    }
+    var foundRealPause = false
+    for i in 60..<90 {
+        if syllables.feed(rms: 0.02, at: Double(i) * 0.05) { foundRealPause = true }
+    }
+    Checks.equal(foundRealPause, true,
+                 "a real pause is detected even when speech has quieter gaps between syllables")
+
     // In a noisy room the floor rises, so absolute thresholds would never fire.
     var noisy = SilenceDetector(pauseDuration: 0.6, sensitivity: 3, initialFloor: 0.01)
     for i in 0..<40 { _ = noisy.feed(rms: 0.30, at: Double(i) * 0.05) }
