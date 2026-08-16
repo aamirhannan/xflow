@@ -1,5 +1,10 @@
 # XFlow Implementation Plan
 
+> **Historical document.** This records what was planned on the date above and is
+> not updated. Several decisions here have since been reversed by measurement.
+> For how the app works today, see [`notes/0001-architecture.md`](../../../notes/0001-architecture.md);
+> for why it changed, [`notes/0002-versions.md`](../../../notes/0002-versions.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A macOS menu-bar app where holding `fn` records your voice and releasing it pastes the transcribed, cleaned-up text into whatever text field is focused.

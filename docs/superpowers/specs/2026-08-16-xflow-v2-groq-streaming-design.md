@@ -1,5 +1,15 @@
 # XFlow v2 — Groq transcription with silence-based segmentation
 
+> **Historical document.** This records what was planned on the date above and is
+> not updated. Several decisions here have since been reversed by measurement.
+> For how the app works today, see [`notes/0001-architecture.md`](../../../notes/0001-architecture.md);
+> for why it changed, [`notes/0002-versions.md`](../../../notes/0002-versions.md).
+
+> Specifically superseded: transcription is no longer Groq `whisper-large-v3-turbo`
+> (it deleted Hindi from code-switched speech in 6 of 6 runs), cleanup is no longer
+> `gpt-oss-20b` (it returned empty content and silently dropped segments), and the
+> "Groq only, no provider split" decision was reversed.
+
 **Date:** 2026-08-16
 **Status:** Approved design, ready for implementation planning
 **Supersedes provider choices in:** `2026-08-16-xflow-dictation-design.md`
