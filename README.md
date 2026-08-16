@@ -127,6 +127,7 @@ The OS-level behaviour cannot be unit tested. Run this before any release:
 - [ ] Revoke Accessibility and dictate — notification says the text is on the clipboard
 - [ ] Tap `fn` briefly — nothing happens and no API call is made
 - [ ] Hold `fn` for over two minutes — recording auto-stops and transcribes
+- [ ] Paste into the API key field with ⌘V — works (an accessory app needs an explicit Edit menu for this)
 
 ## Known limits
 

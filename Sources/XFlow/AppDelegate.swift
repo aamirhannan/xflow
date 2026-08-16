@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var state: SessionState = .idle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installEditMenu()
         menuBar.onOpenSettings = { [weak self] in self?.permissionsWindow.show() }
 
         hotkey.onDown = { [weak self] in self?.handle(.hotkeyDown) }
@@ -31,6 +32,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run { self.permissionsWindow.show() }
             }
         }
+    }
+
+    /// An accessory app gets no main menu, and macOS dispatches Cmd-X/C/V/A and
+    /// Cmd-Z through the main menu before anything else sees them. Without this,
+    /// paste silently does nothing in every text field the app will ever have —
+    /// which makes an API key field unusable, since nobody types a key by hand.
+    private func installEditMenu() {
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        let editItem = NSMenuItem()
+        editItem.submenu = edit
+
+        let mainMenu = NSMenu()
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
     }
 
     // MARK: - State machine
