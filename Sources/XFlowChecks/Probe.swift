@@ -31,7 +31,7 @@ enum Probe {
         guard let transcript = call(
             Transcription.request(
                 apiKey: sttKey, model: Transcription.defaultModel, audio: audio,
-                filename: name, vocabulary: VocabularyPrompt.default
+                filename: name
             ), decode: Transcription.decode
         ) else { print("  transcription failed"); return }
 
@@ -39,7 +39,7 @@ enum Probe {
         print("    \(transcript.prefix(300))")
 
         guard let cleaned = call(
-            Groq.cleanupRequest(apiKey: cleanupKey, model: Groq.defaultCleanupModel, transcript: transcript),
+            Groq.cleanupRequest(apiKey: cleanupKey, model: Groq.defaultCleanupModel, transcript: transcript, vocabulary: VocabularyPrompt.default),
             decode: Groq.decodeCleanup
         ) else { print("  cleanup failed"); return }
 

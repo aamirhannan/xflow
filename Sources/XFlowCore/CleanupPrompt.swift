@@ -58,6 +58,25 @@ public enum CleanupPrompt {
     say. No preamble, no quotes, no explanation, no answers.
     """
 
+    /// The system prompt with the speaker's vocabulary appended.
+    ///
+    /// Vocabulary belongs here, never on the transcription request. Sent to the
+    /// audio model, those same 14 English words biased its language detection
+    /// and it translated the Hindi away in 3 of 6 runs; without them it kept the
+    /// Hindi in 6 of 6. Sent here it cannot affect language detection at all,
+    /// and it still restores the terms: "ARBack" became RBAC, "Sockets" became SOX.
+    public static func system(vocabulary: String) -> String {
+        let terms = vocabulary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !terms.isEmpty else { return system }
+        return system + """
+
+
+        The speaker often uses these terms. When a word in the transcript is \
+        clearly one of them written phonetically, restore its correct spelling: \
+        \(terms)
+        """
+    }
+
     /// Wraps a transcript for the user turn, stripping any stray closing tag so
     /// the speaker cannot accidentally end the block early.
     public static func wrap(_ transcript: String) -> String {

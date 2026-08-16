@@ -80,8 +80,7 @@ struct Transcriber {
                 apiKey: sttKey,
                 model: Settings.sttModel,
                 audio: audio,
-                filename: fileURL.lastPathComponent,
-                vocabulary: Settings.vocabulary
+                filename: fileURL.lastPathComponent
             ),
             on: session,
             decode: Transcription.decode
@@ -95,7 +94,8 @@ struct Transcriber {
                 Groq.cleanupRequest(
                     apiKey: cleanupKey,
                     model: Settings.cleanupModel,
-                    transcript: transcript
+                    transcript: transcript,
+                    vocabulary: Settings.vocabulary
                 ),
                 on: session,
                 decode: Groq.decodeCleanup
@@ -121,7 +121,8 @@ struct Transcriber {
                     apiKey: cleanupKey,
                     model: Settings.cleanupModel,
                     transcript: transcript,
-                    firstAttempt: cleaned
+                    firstAttempt: cleaned,
+                    vocabulary: Settings.vocabulary
                 ),
                 on: session,
                 decode: Groq.decodeCleanup

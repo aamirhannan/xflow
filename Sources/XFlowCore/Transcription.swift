@@ -37,16 +37,17 @@ public enum Transcription {
         model: String,
         audio: Data,
         filename: String,
-        vocabulary: String,
         boundary: String = "xflow-\(UUID().uuidString)"
     ) -> URLRequest {
         var body = MultipartBody(boundary: boundary)
         body.addField(name: "model", value: model)
 
-        // Measured to matter: without it, RBAC came back as "आरबैक". With it,
-        // RBAC survives verbatim.
-        let terms = vocabulary.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !terms.isEmpty { body.addField(name: "prompt", value: terms) }
+        // NO `prompt` FIELD. The vocabulary belongs on the cleanup call.
+        // Measured: sending those 14 English words here biased language
+        // detection and the model translated the Hindi away in 3 of 6 runs on
+        // code-switched speech. Without them it kept the Hindi in 6 of 6.
+        // The terms are still restored later, at the text stage, where they
+        // cannot affect what language the audio is heard as.
 
         // NO `language` FIELD. EVER. With language=en, Whisper stopped
         // transcribing and started translating and summarising. With language=hi

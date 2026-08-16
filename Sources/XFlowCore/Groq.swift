@@ -16,12 +16,14 @@ public enum Groq {
     /// count, verbatim English, in 0.73s.
     public static let defaultCleanupModel = "llama-3.3-70b-versatile"
 
-    public static func cleanupRequest(apiKey: String, model: String, transcript: String) -> URLRequest {
+    public static func cleanupRequest(
+        apiKey: String, model: String, transcript: String, vocabulary: String = ""
+    ) -> URLRequest {
         let payload: [String: Any] = [
             "model": model,
             "temperature": 0,
             "messages": [
-                ["role": "system", "content": CleanupPrompt.system],
+                ["role": "system", "content": CleanupPrompt.system(vocabulary: vocabulary)],
                 // Delimited, so the model can tell speech from instructions.
                 ["role": "user", "content": CleanupPrompt.wrap(transcript)],
             ],
@@ -46,13 +48,14 @@ public enum Groq {
     """
 
     public static func cleanupRetryRequest(
-        apiKey: String, model: String, transcript: String, firstAttempt: String
+        apiKey: String, model: String, transcript: String,
+        firstAttempt: String, vocabulary: String = ""
     ) -> URLRequest {
         let payload: [String: Any] = [
             "model": model,
             "temperature": 0,
             "messages": [
-                ["role": "system", "content": CleanupPrompt.system],
+                ["role": "system", "content": CleanupPrompt.system(vocabulary: vocabulary)],
                 ["role": "user", "content": CleanupPrompt.wrap(transcript)],
                 ["role": "assistant", "content": firstAttempt],
                 ["role": "user", "content": retryInstruction],
