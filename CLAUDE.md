@@ -13,11 +13,16 @@ Never commit directly to `main`.
    against the base.
 5. Stop there.
 
-**Never merge. Not with `git merge`, not with `gh pr merge`, not "just this
-once" because the diff is small or the branch is only documentation.** Every
-branch reaches `main` through a pull request that the user merges. If a branch
-depends on unmerged work, base the new branch on that branch and say so in the
-pull request — do not merge the dependency to unblock yourself.
+**Nothing reaches `main` except through a pull request the user merges.** Not
+with `git merge`, not with `gh pr merge`, not "just this once" because the diff
+is small or the branch is only documentation. If a branch depends on unmerged
+work, base it on that branch and say so in the pull request — never merge the
+dependency to unblock yourself.
+
+The one exception is scaffolding *below* a feature branch: when work is split
+across parallel worktrees, folding those throwaway session branches into their
+own feature branch is ordinary assembly, not integration. The feature branch
+still reaches `main` only by pull request.
 
 This is a public personal repo, so `gh` needs the account switch from the global
 rules: `gh auth switch -u aamirhannan` before any `gh` command, and back to

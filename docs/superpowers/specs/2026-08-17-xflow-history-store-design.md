@@ -56,11 +56,18 @@ Three new files, following the target split the repo already uses: pure logic in
 | File | Target | Responsibility |
 | --- | --- | --- |
 | `Sources/XFlowCore/DictationRecord.swift` | XFlowCore | The record type and JSONL encode/decode. String ↔ struct only, no filesystem. |
-| `Sources/XFlow/HistoryStore.swift` | XFlow | The file: append, read, delete. Owns all I/O and all failure swallowing. |
+| `Sources/XFlowCore/HistoryStore.swift` | XFlowCore | The file: append, read, delete. Owns all I/O and all failure swallowing. Takes its file URL as a parameter. |
 | `Sources/XFlowChecks/HistoryChecks.swift` | XFlowChecks | Round-trip, corruption, and word-count checks. |
 
 The split exists so the format's worst edge case — a half-written final line —
 is testable without touching a filesystem.
+
+`HistoryStore` lives in `XFlowCore` rather than `XFlow` for a blunt reason:
+`XFlowChecks` depends only on `XFlowCore`, so anything in the `XFlow` target is
+unreachable from the checks. Taking the file URL as an initializer parameter
+costs one line and makes the disk layer checkable against a temporary directory.
+`Settings.historyEnabled` stays in `XFlow` and gates the *call site*, so the
+store never learns about `UserDefaults`.
 
 ## The record
 
@@ -114,9 +121,9 @@ final class HistoryStore {
 
 The directory is created with POSIX permissions `0700` and the file with `0600`.
 
-`Settings.historyEnabled` (default `true`) gates `record()`. When off it is a
-no-op; reads and deletes still work, so existing history stays visible and
-removable after recording is paused.
+`Settings.historyEnabled` (default `true`) gates the *caller*, not the store —
+`complete(...)` returns before recording when it is off. Reads and deletes still
+work, so existing history stays visible and removable after recording is paused.
 
 ## Pipeline integration
 
@@ -156,7 +163,11 @@ public struct Transcript: Equatable {
   `Transcript` whose two sides are each joined in index order.
 - `AppDelegate` passes both sides into the record at its three call sites
   (single-shot, segmented tail, whole-audio fallback).
-- `XFlowChecks/Probe.swift` is updated for the new return type.
+
+`XFlowChecks/Probe.swift` is **not** affected, contrary to an earlier draft of
+this spec. It rebuilds the pipeline from `XFlowCore` request builders and never
+calls `Transcriber` — it cannot, since `XFlowChecks` does not depend on the
+`XFlow` target.
 
 `Transcript` lives in `Sources/XFlowCore/TranscriptAssembler.swift` alongside the
 type that assembles it, rather than in a file of its own.
@@ -212,9 +223,13 @@ torn, so the worst case is losing one dictation from history, never the file.
 6. `TranscriptAssembler` joins `raw` and `cleaned` independently, both in index
    order — extending the existing assembler coverage.
 
-The disk layer is deliberately not checked. It is roughly twenty lines of
-`FileHandle` calls, and everything that can be got wrong about the format lives
-in the pure layer above.
+The disk layer is checked too, against a temporary directory: append and read
+order, a torn final line costing only its own record, deleting one record,
+deleting everything, recreating the file afterwards, and the `0600` mode both on
+creation and after a rewrite. That last one matters more than it looks — an
+atomic write replaces the file rather than editing it, so without an explicit
+`setAttributes` the history would quietly become world-readable the first time a
+record was deleted.
 
 ## Success criteria
 
