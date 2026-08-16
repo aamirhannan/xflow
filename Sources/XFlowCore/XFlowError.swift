@@ -33,7 +33,11 @@ public enum XFlowError: Error, Equatable, Sendable {
 
     public var isRetryable: Bool {
         switch self {
-        case .rateLimited, .network, .server, .timedOut: return true
+        case .rateLimited, .network, .server: return true
+        // Deliberately NOT retryable. A timeout has already waited the full
+        // budget; retrying it doubles the silence the user sits through, which
+        // is what turned a 30-second stall into a 62-second one.
+        case .timedOut: return false
         case .noAPIKey, .invalidKey, .emptyTranscript, .decoding: return false
         }
     }

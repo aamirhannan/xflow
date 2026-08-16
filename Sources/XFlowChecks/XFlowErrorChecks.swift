@@ -24,6 +24,8 @@ func checkXFlowError() {
     // A timeout must stay distinct from "no network" — collapsing them is what
     // made the 60-second hang undiagnosable in the first place.
     Checks.check(XFlowError.timedOut != XFlowError.network, "timeout is not the same error as no network")
+    // Regression guard: retrying a timeout is what produced the 62-second hang.
+    Checks.equal(XFlowError.timedOut.isRetryable, false, "a timeout is never retried")
 
     let all: [XFlowError] = [
         .noAPIKey, .invalidKey, .rateLimited, .server("x"), .emptyTranscript, .decoding, .network, .timedOut,

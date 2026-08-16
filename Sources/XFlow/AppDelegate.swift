@@ -1,7 +1,10 @@
 import AppKit
 import Carbon.HIToolbox
+import OSLog
 import UserNotifications
 import XFlowCore
+
+private let log = Logger(subsystem: "com.aamirhannan.xflow", category: "app")
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkey = HotkeyMonitor()
@@ -13,7 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var state: SessionState = .idle
 
+    /// Must be retained: releasing the token ends the activity and lets macOS
+    /// nap the app again.
+    private var activityToken: NSObjectProtocol?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        preventAppNap()
         installEditMenu()
         menuBar.onOpenSettings = { [weak self] in self?.permissionsWindow.show() }
 
@@ -32,6 +40,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run { self.permissionsWindow.show() }
             }
         }
+    }
+
+    /// A menu-bar app with no visible window is the textbook App Nap target, and
+    /// a napped process gets its timers coalesced and its network work deferred —
+    /// which is indistinguishable from a hang. A push-to-talk tool has to answer
+    /// a keypress instantly, so it must never be napped.
+    ///
+    /// `.userInitiatedAllowingIdleSystemSleep` prevents App Nap but still lets
+    /// the Mac itself sleep normally.
+    ///
+    /// ponytail: held for the whole app lifetime rather than scoped to a
+    /// dictation. Scoping it to hotkey-down through paste would be tighter, but
+    /// this app runs no timers while idle, so App Nap saves almost nothing here
+    /// and the lifecycle would be one more thing to get wrong. Scope it if
+    /// battery measurements ever say otherwise.
+    private func preventAppNap() {
+        activityToken = ProcessInfo.processInfo.beginActivity(
+            options: .userInitiatedAllowingIdleSystemSleep,
+            reason: "XFlow must respond to the fn key without delay"
+        )
+        log.notice("app nap prevented")
     }
 
     /// An accessory app gets no main menu, and macOS dispatches Cmd-X/C/V/A and

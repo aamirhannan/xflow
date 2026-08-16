@@ -11,7 +11,11 @@ struct Transcriber {
 
     init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
+        // Inactivity budget. Measured latency is ~1.5s for a 15s clip and ~13s
+        // for a 4-minute one, so 15s of no data movement means something is
+        // wrong, not slow. Paired with a hard ceiling on the whole transfer.
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 60
         session = URLSession(configuration: config)
     }
 
@@ -79,7 +83,7 @@ struct Transcriber {
         }
 
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        log.info("""
+        log.notice("""
         \(leg, privacy: .public) \(status, privacy: .public) in \
         \(Self.seconds(since: start), privacy: .public)s sent=\(sent, privacy: .public)B
         """)
