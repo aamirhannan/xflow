@@ -7,8 +7,8 @@ wait after releasing is roughly constant no matter how long you spoke.
 
 | Target | Role |
 | --- | --- |
-| `XFlowCore` | Pure logic: state machine, silence detection, segment policy, transcript assembly, request builders, script verification. No AppKit, no URLSession. |
-| `XFlow` | The app: hotkey, audio capture, network, overlay, menu bar, settings, paste. |
+| `XFlowCore` | Pure logic: state machine, silence detection, segment policy, transcript assembly, request builders, script verification, history format, statistics and search. No AppKit, no URLSession. |
+| `XFlow` | The app: hotkey, audio capture, network, overlay, menu bar, paste, and the SwiftUI window. |
 | `XFlowChecks` | Assert-based checks, plus `--probe` for running the real pipeline over audio files. |
 
 There is no test target. Command Line Tools ship neither `XCTest` nor
@@ -130,13 +130,47 @@ Two controls live in the menu bar until 2B moves them into the dashboard:
 **Save history** pauses new writes without hiding what is already stored, and
 **Delete all history…** removes the file behind a confirmation.
 
+## The window
+
+One window, two pages, and a wizard that takes over the same window on first run.
+AppKit owns the frame; everything inside is SwiftUI in an `NSHostingView`. The
+deployment target is macOS 14, so there is no reason to lay out a form by hand.
+
+**Home** shows three numbers — words dictated, time spoken, day streak — then a
+search field and every dictation grouped by day. Selecting one opens it with
+Copy, Delete, and a **Show original** toggle. That toggle is why both transcripts
+are stored: when cleanup romanizes something wrongly or drops a phrase, it is the
+only route back to what was actually said.
+
+The numbers and the search are pure functions in `XFlowCore` (`Statistics`,
+`HistoryQuery`), so the awkward parts are checkable — which day a timestamp
+belongs to, and when a streak breaks. A streak survives the day after your last
+dictation and breaks when a whole day passes empty, rather than at midnight,
+which would show everyone a zero every morning.
+
+Home reads the store when it appears and after a delete. It does not update
+while open.
+
+**Settings** is the permission checklist, both API keys, vocabulary, the three
+behaviour toggles, and Delete all history. Permission state is polled every 1.5
+seconds because grants are made in System Settings and nothing notifies the app.
+
+The **wizard** runs once, one requirement per screen, and each permission screen
+advances by itself when the grant lands. Its last screen offers a relaunch:
+Accessibility and Input Monitoring grants do not always take effect in a process
+that was already running.
+
+This replaced `PermissionsWindow`, 210 lines of hand-rolled `NSStackView`. The
+whole window — two pages, a detail view and a wizard — added fewer lines than
+that form had.
+
 ## Deliberate shortcuts
 
 Marked with `ponytail:` comments naming the ceiling and the upgrade path. Live
 ones: clipboard restore is plain-text only; the noise floor is an exponential
 tracker rather than a real VAD; ICU romanization is a floor, not the default
 path; one lock guards all audio-tap state; history has no in-memory cache and
-re-reads the whole file on every query.
+re-reads the whole file on every query, so Home does not update while open.
 
 Two have already come due and been upgraded: `AVAudioRecorder` → `AVAudioEngine`
 when segmentation arrived, and the single shared `URLSession` → one per
