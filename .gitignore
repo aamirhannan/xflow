@@ -7,3 +7,7 @@ build/
 # Local test recordings — never publish voice data
 audio.*
 *.opus
+
+# Secrets — never commit
+.env
+.env.*
