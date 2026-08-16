@@ -133,6 +133,16 @@ Two traps found the hard way:
 - `whisper-large-v3` is worse than `turbo` here *and* returned HTTP 500 three
   times on a 983KB file. The cheaper model is the better one for this workload.
 
+## Documentation
+
+| Path | What it holds |
+| --- | --- |
+| [`CLAUDE.md`](CLAUDE.md) | Working rules: branching, verification, and the hard rules each learned from a real bug |
+| [`notes/0001-architecture.md`](notes/0001-architecture.md) | How the app works today |
+| [`notes/0002-versions.md`](notes/0002-versions.md) | V1 → V2 → V3, what changed and the measured reason |
+| [`notes/0003-findings.md`](notes/0003-findings.md) | Eight bugs with their numbers, so nobody re-derives them |
+| `docs/superpowers/` | Point-in-time specs and plans. Historical, partly superseded. |
+
 ## Development
 
 ```bash

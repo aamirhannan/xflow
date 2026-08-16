@@ -1,5 +1,10 @@
 # XFlow — push-to-talk dictation for macOS
 
+> **Historical document.** This records what was planned on the date above and is
+> not updated. Several decisions here have since been reversed by measurement.
+> For how the app works today, see [`notes/0001-architecture.md`](../../../notes/0001-architecture.md);
+> for why it changed, [`notes/0002-versions.md`](../../../notes/0002-versions.md).
+
 **Date:** 2026-08-16
 **Status:** Approved design, ready for implementation planning
 
