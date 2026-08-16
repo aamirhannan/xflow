@@ -3,3 +3,7 @@ build/
 .swiftpm/
 .DS_Store
 *.xcuserstate
+
+# Local test recordings — never publish voice data
+audio.*
+*.opus
