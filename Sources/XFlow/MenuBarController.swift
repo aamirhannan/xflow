@@ -2,10 +2,12 @@ import AppKit
 
 final class MenuBarController: NSObject {
     var onOpenSettings: () -> Void = {}
+    var onDeleteAllHistory: () -> Void = {}
 
     private let item: NSStatusItem
     private let cleanupMenuItem: NSMenuItem
     private let segmentingMenuItem: NSMenuItem
+    private let historyMenuItem: NSMenuItem
 
     override init() {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -17,6 +19,11 @@ final class MenuBarController: NSObject {
         segmentingMenuItem = NSMenuItem(
             title: "Transcribe while speaking",
             action: #selector(toggleSegmenting),
+            keyEquivalent: ""
+        )
+        historyMenuItem = NSMenuItem(
+            title: "Save history",
+            action: #selector(toggleHistory),
             keyEquivalent: ""
         )
         super.init()
@@ -34,6 +41,18 @@ final class MenuBarController: NSObject {
         segmentingMenuItem.target = self
         segmentingMenuItem.state = Settings.segmentingEnabled ? .on : .off
         menu.addItem(segmentingMenuItem)
+
+        historyMenuItem.target = self
+        historyMenuItem.state = Settings.historyEnabled ? .on : .off
+        menu.addItem(historyMenuItem)
+
+        let deleteHistory = NSMenuItem(
+            title: "Delete all history…",
+            action: #selector(deleteAllHistory),
+            keyEquivalent: ""
+        )
+        deleteHistory.target = self
+        menu.addItem(deleteHistory)
 
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
@@ -62,6 +81,26 @@ final class MenuBarController: NSObject {
     @objc private func toggleSegmenting() {
         Settings.segmentingEnabled.toggle()
         segmentingMenuItem.state = Settings.segmentingEnabled ? .on : .off
+    }
+
+    @objc private func toggleHistory() {
+        Settings.historyEnabled.toggle()
+        historyMenuItem.state = Settings.historyEnabled ? .on : .off
+    }
+
+    @objc private func deleteAllHistory() {
+        let alert = NSAlert()
+        alert.messageText = "Delete all dictation history?"
+        alert.informativeText =
+            "Every transcript stored on this Mac will be removed. This cannot be undone."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+
+        // An accessory app is not frontmost when its menu is used, and an alert
+        // from a background app can open behind whatever the user is looking at.
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        onDeleteAllHistory()
     }
 
     @objc private func openSettings() {
