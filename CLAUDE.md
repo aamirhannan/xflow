@@ -95,7 +95,7 @@ These are enforced by checks. Do not "simplify" them away.
 | `Sources/XFlowCore/` | Pure logic, no OS dependencies. Everything checkable. |
 | `Sources/XFlow/` | The AppKit app: hotkey, audio, network, UI, paste. |
 | `Sources/XFlowChecks/` | Assert-based checks and the `--probe` harness. |
-| `notes/` | Current architecture, version history, and measured findings. **Read these first.** |
+| `notes/` | Current architecture, version history, measured findings, and per-phase decision records. **Read these first.** |
 | `docs/superpowers/` | Point-in-time specs and plans. Historical: never updated, and partly superseded. |
 
 Keep `ponytail:` comments accurate — each names a deliberate shortcut and the
