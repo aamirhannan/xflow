@@ -24,12 +24,18 @@ func checkGroq() {
     let body = String(data: request.httpBody!, encoding: .isoLatin1)!
     Checks.check(request.httpBody!.range(of: audio) != nil, "body carries the audio bytes")
     Checks.check(body.contains("gpt-4o-mini-transcribe"), "body names the model")
-    // Regression guard. Those 14 English vocabulary words biased language
-    // detection: with them the model translated the Hindi away in 3 of 6 runs on
-    // code-switched speech, without them it kept the Hindi in 6 of 6. Vocabulary
-    // belongs on the cleanup call, where it cannot affect what language is heard.
+    // Regression guard, three measured harms behind it. The `prompt` field is not
+    // a vocabulary list to the API — it is previous context, and the model
+    // continues from it. Sending those 14 English terms on the audio request:
+    //   1. biased language detection: mixed hindi survived 3 of 6 runs, not 6 of 6
+    //   2. leaked verbatim into the transcript on near-silent audio, pasting
+    //      "RBAC, SOX, RACM, risk owner, ..." into the user's document
+    //   3. pushed gpt-4o-transcribe into romanizing everything into devanagari
+    // Vocabulary belongs on the cleanup call, where it can reach neither.
     Checks.check(!body.contains("name=\"prompt\""),
                  "the audio request never carries a vocabulary prompt")
+    Checks.check(!body.contains("RBAC"),
+                 "no vocabulary term can reach the audio request by any route")
 
     // Regression guard. With language=en, Whisper translated and summarised
     // instead of transcribing and lost most of the content. It must never be sent.
