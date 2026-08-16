@@ -13,8 +13,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let menuBar = MenuBarController()
     private let permissionsWindow = PermissionsWindow()
     private let transcriber = Transcriber()
+    private let segmentingRecorder = SegmentingRecorder()
 
     private var state: SessionState = .idle
+    private var assembler = TranscriptAssembler()
+    private var segmentTasks: [Task<Void, Never>] = []
 
     /// Must be retained: releasing the token ends the activity and lets macOS
     /// nap the app again.
@@ -32,6 +35,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         recorder.onLevel = { [weak self] level in self?.pill.update(level: level) }
         recorder.onAutoStop = { [weak self] in self?.handle(.hotkeyUp) }
+
+        segmentingRecorder.onLevel = { [weak self] level in self?.pill.update(level: level) }
+        segmentingRecorder.onAutoStop = { [weak self] in self?.handle(.hotkeyUp) }
+        segmentingRecorder.onSegment = { [weak self] url, index in
+            self?.transcribeSegment(url, index: index)
+        }
 
         requestNotificationAuthorization()
 
@@ -117,8 +126,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        assembler = TranscriptAssembler()
+        segmentTasks.forEach { $0.cancel() }
+        segmentTasks.removeAll()
+
         do {
-            try recorder.start()
+            if Settings.segmentingEnabled {
+                try segmentingRecorder.start()
+            } else {
+                try recorder.start()
+            }
             pill.showRecording()
             menuBar.setRecording(true)
         } catch {
@@ -126,9 +143,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Fires as soon as a segment closes, so its round trip overlaps with the
+    /// rest of the dictation. Failures are recorded rather than thrown: the
+    /// whole-audio fallback in finishSegmentedRecording recovers them.
+    private func transcribeSegment(_ url: URL, index: Int) {
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { try? FileManager.default.removeItem(at: url) }
+            do {
+                let text = try await transcriber.transcribe(fileURL: url)
+                await MainActor.run { self.assembler.store(text, at: index) }
+            } catch {
+                log.error("segment \(index, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                await MainActor.run { self.assembler.markFailed(at: index) }
+            }
+        }
+        segmentTasks.append(task)
+    }
+
     private func finishRecording() {
         menuBar.setRecording(false)
+        if Settings.segmentingEnabled {
+            finishSegmentedRecording()
+        } else {
+            finishSingleShotRecording()
+        }
+    }
 
+    private func finishSingleShotRecording() {
         guard let clip = recorder.stop() else {
             state = state.next(on: .failed, now: Date())
             pill.hide()
@@ -172,6 +214,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run { self.fail("Transcription failed") }
             }
         }
+    }
+
+    private func finishSegmentedRecording() {
+        guard let result = segmentingRecorder.stop() else {
+            state = state.next(on: .failed, now: Date())
+            pill.hide()
+            return
+        }
+
+        guard RecordingPolicy.shouldTranscribe(duration: result.duration) else {
+            // An accidental fn tap. No API call, no message, no cost.
+            result.tail.map { try? FileManager.default.removeItem(at: $0) }
+            state = state.next(on: .failed, now: Date())
+            pill.hide()
+            return
+        }
+
+        pill.showTranscribing()
+
+        Task { [weak self] in
+            guard let self else { return }
+
+            // The tail is the only unprocessed audio, which is why the wait no
+            // longer grows with how long the user spoke.
+            if let tail = result.tail {
+                do {
+                    let text = try await transcriber.transcribe(fileURL: tail)
+                    await MainActor.run { self.assembler.store(text, at: result.tailIndex) }
+                } catch {
+                    await MainActor.run { self.assembler.markFailed(at: result.tailIndex) }
+                }
+                try? FileManager.default.removeItem(at: tail)
+            }
+
+            // Earlier segments are usually done; this waits only for stragglers.
+            for task in self.segmentTasks { _ = await task.value }
+
+            let failures = await MainActor.run { self.assembler.failedIndices }
+            var text = await MainActor.run { self.assembler.assembled() }
+
+            if !failures.isEmpty {
+                log.notice("\(failures.count, privacy: .public) segments failed, falling back to whole audio")
+                if let recovered = await self.wholeAudioFallback() { text = recovered }
+            }
+
+            guard !text.isEmpty else {
+                await MainActor.run { self.fail("Nothing heard") }
+                return
+            }
+
+            await MainActor.run { self.handle(.transcriptReady) }
+            let pasted = await Inserter.insert(text)
+            await MainActor.run {
+                self.pill.hide()
+                self.handle(.inserted)
+                if !pasted {
+                    self.notify("Copied to clipboard — press ⌘V to paste (Accessibility is off)")
+                }
+            }
+        }
+    }
+
+    /// Last resort when a segment could not be transcribed: send the entire
+    /// recording as one request. Slower, but no words are lost.
+    private func wholeAudioFallback() async -> String? {
+        guard let url = segmentingRecorder.rebuildFullAudio() else { return nil }
+        defer { try? FileManager.default.removeItem(at: url) }
+        return try? await transcriber.transcribe(fileURL: url)
     }
 
     // MARK: - Notifications
