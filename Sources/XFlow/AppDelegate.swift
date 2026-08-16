@@ -147,6 +147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// rest of the dictation. Failures are recorded rather than thrown: the
     /// whole-audio fallback in finishSegmentedRecording recovers them.
     private func transcribeSegment(_ url: URL, index: Int) {
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil
+        log.notice("SEGMENT \(index, privacy: .public) closed mid-dictation, \(bytes ?? -1, privacy: .public)B")
         let task = Task { [weak self] in
             guard let self else { return }
             defer { try? FileManager.default.removeItem(at: url) }
@@ -231,6 +233,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        let releasedAt = Date()
+        log.notice("""
+        RELEASE after \(String(format: "%.1f", result.duration), privacy: .public)s, \
+        tail index \(result.tailIndex, privacy: .public) \
+        (\(result.tailIndex, privacy: .public) segments already sent)
+        """)
         pill.showTranscribing()
 
         Task { [weak self] in
@@ -264,6 +272,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
+            // The only latency number that matters: fn release to text on screen.
+            log.notice("PERCEIVED WAIT \(String(format: "%.2f", Date().timeIntervalSince(releasedAt)), privacy: .public)s")
             await MainActor.run { self.handle(.transcriptReady) }
             let pasted = await Inserter.insert(text)
             await MainActor.run {
